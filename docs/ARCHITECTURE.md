@@ -96,7 +96,7 @@ runtime::payload
 
 runtime::engine
   - InstallerEngine::install()
-  - parallel silent extraction
+  - parallel silent extraction across files and chunks
   - progress-aware GUI extraction
   - best-effort rollback of newly created files/shortcuts
   - token expansion
@@ -140,20 +140,19 @@ Indexed manifest + chunked zstd frames.
 ### Upside
 - manifest loads directly from mmap
 - silent installs can extract files in parallel with rayon
-- large files are already chunk-addressable for future intra-file parallelism
+- large single files can now decode/write chunks in parallel
 - true random access to individual files
 - still one-file output
 
 ### Downside
 - packager currently holds compressed frames in memory before writing
 - GUI path stays sequential for stable progress updates
-- large single files are still written chunk-by-chunk on one thread today
 - rollback is currently best-effort for newly created files/shortcuts, not full transactional restore
 - slightly worse compression than one giant shared stream on some payloads
 
 ### Recommendation
 Keep this as the default v2 payload.
-Next perf step: parallelize decode/write across chunks of one large file.
+Next perf step: stream payload assembly directly to the final output to cut peak RAM during packaging.
 
 ## Binary size note
 

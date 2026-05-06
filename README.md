@@ -50,8 +50,8 @@ Known issue:
 
 - release `packager.exe` fits target well
 - release `runtime.exe` is down to roughly `7.2 MB` here, but still above the long-term `< 3 MB` target with the current Slint+winit software-renderer stack
-- GUI installs keep sequential extraction for smooth progress reporting; silent installs use the fast path
-- chunked payload frames are in place, but large single files are not yet decompressed in parallel within one file
+- GUI installs keep sequential extraction for smooth progress reporting
+- silent installs now parallelize both across files and across chunks of a large single file
 
 ## Build
 
@@ -134,5 +134,5 @@ exclude = ["*.pdb"]
 ## Short roadmap
 
 - reduce runtime stub size further
-- true intra-file parallel extraction for large single files
+- stream payload assembly in the packager to reduce peak RAM
 - transactional rollback for overwritten files / registry / PATH

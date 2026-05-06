@@ -1,9 +1,9 @@
 // runtime/src/engine.rs
 use std::fs::{self, File};
-use std::io::{BufWriter, Cursor};
+use std::io::{BufWriter, Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use rayon::prelude::*;
@@ -77,6 +77,13 @@ pub enum EngineError {
         path: PathBuf,
         #[source]
         source: std::io::Error,
+    },
+    #[error("decoded chunk size mismatch for {path} chunk {chunk_index}: expected {expected} bytes, got {actual}")]
+    ChunkSizeMismatch {
+        path: PathBuf,
+        chunk_index: usize,
+        expected: u64,
+        actual: u64,
     },
     #[error("failed to resolve path template {template}: {reason}")]
     ResolvePath { template: String, reason: String },
@@ -209,7 +216,7 @@ impl InstallerEngine {
     fn extract_files_parallel(&self, plans: &[ExtractPlan]) -> Result<InstallRollback, EngineError> {
         let rollback = Mutex::new(InstallRollback::default());
         let result = plans.par_iter().try_for_each(|plan| {
-            self.write_payload_file(&plan.packaged, &plan.output_path)?;
+            self.write_extract_plan(plan, true)?;
             rollback.lock().expect("rollback mutex poisoned").record_extraction(plan);
             Ok(())
         });
@@ -246,7 +253,7 @@ impl InstallerEngine {
                 total_bytes,
             ));
 
-            if let Err(error) = self.write_payload_file(&plan.packaged, &plan.output_path) {
+            if let Err(error) = self.write_extract_plan(plan, false) {
                 rollback.rollback();
                 return Err(error);
             }
@@ -269,7 +276,24 @@ impl InstallerEngine {
         Ok((rollback, completed_files, completed_bytes))
     }
 
-    fn write_payload_file(&self, packaged: &PackagedFile, output_path: &Path) -> Result<(), EngineError> {
+    fn write_extract_plan(&self, plan: &ExtractPlan, allow_parallel_chunks: bool) -> Result<(), EngineError> {
+        let result = if allow_parallel_chunks && plan.packaged.chunks.len() > 1 {
+            self.write_payload_file_parallel(&plan.packaged, &plan.output_path)
+        } else {
+            self.write_payload_file_sequential(&plan.packaged, &plan.output_path)
+        };
+
+        if let Err(error) = result {
+            if !plan.file_existed {
+                let _ = fs::remove_file(&plan.output_path);
+            }
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
+    fn write_payload_file_sequential(&self, packaged: &PackagedFile, output_path: &Path) -> Result<(), EngineError> {
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent).map_err(|source| EngineError::CreateDir {
                 path: parent.to_path_buf(),
@@ -291,6 +315,49 @@ impl InstallerEngine {
             })?;
         }
         Ok(())
+    }
+
+    fn write_payload_file_parallel(&self, packaged: &PackagedFile, output_path: &Path) -> Result<(), EngineError> {
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent).map_err(|source| EngineError::CreateDir {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+
+        let file = Arc::new(File::create(output_path).map_err(|source| EngineError::CreateFile {
+            path: output_path.to_path_buf(),
+            source,
+        })?);
+        file.set_len(packaged.size).map_err(|source| EngineError::WriteFile {
+            path: output_path.to_path_buf(),
+            source,
+        })?;
+
+        let chunk_offsets = chunk_output_offsets(packaged);
+        packaged
+            .chunks
+            .par_iter()
+            .enumerate()
+            .try_for_each(|(chunk_index, chunk)| {
+                let compressed = self.payload.payload_chunk_bytes(packaged, chunk, chunk_index)?;
+                let mut decoder = zstd::stream::read::Decoder::new(Cursor::new(compressed))?;
+                let mut decoded = Vec::with_capacity(chunk.uncompressed_size as usize);
+                decoder.read_to_end(&mut decoded).map_err(EngineError::Archive)?;
+                if decoded.len() as u64 != chunk.uncompressed_size {
+                    return Err(EngineError::ChunkSizeMismatch {
+                        path: output_path.to_path_buf(),
+                        chunk_index,
+                        expected: chunk.uncompressed_size,
+                        actual: decoded.len() as u64,
+                    });
+                }
+
+                write_all_at(&file, chunk_offsets[chunk_index], &decoded).map_err(|source| EngineError::WriteFile {
+                    path: output_path.to_path_buf(),
+                    source,
+                })
+            })
     }
 
     fn configure_system(&self, context: &InstallContext, rollback: &mut InstallRollback) -> Result<(), EngineError> {
@@ -692,6 +759,50 @@ fn missing_parent_dirs(parent: Option<&Path>) -> Vec<PathBuf> {
     dirs
 }
 
+fn chunk_output_offsets(file: &PackagedFile) -> Vec<u64> {
+    let mut next_offset = 0u64;
+    file.chunks
+        .iter()
+        .map(|chunk| {
+            let offset = next_offset;
+            next_offset += chunk.uncompressed_size;
+            offset
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn write_all_at(file: &File, offset: u64, mut bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::windows::fs::FileExt;
+
+    let mut position = offset;
+    while !bytes.is_empty() {
+        let written = file.seek_write(bytes, position)?;
+        if written == 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "failed to write file chunk"));
+        }
+        bytes = &bytes[written..];
+        position += written as u64;
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_all_at(file: &File, offset: u64, mut bytes: &[u8]) -> std::io::Result<()> {
+    use std::os::unix::fs::FileExt;
+
+    let mut position = offset;
+    while !bytes.is_empty() {
+        let written = file.write_at(bytes, position)?;
+        if written == 0 {
+            return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "failed to write file chunk"));
+        }
+        bytes = &bytes[written..];
+        position += written as u64;
+    }
+    Ok(())
+}
+
 fn parse_windows_args(value: &str) -> Result<Vec<String>, EngineError> {
     let mut args = Vec::new();
     let characters = value.chars().collect::<Vec<_>>();
@@ -945,7 +1056,9 @@ fn broadcast_environment_change() -> Result<(), EngineError> {
 mod tests {
     use std::path::Path;
 
-    use super::{append_path_entry, missing_parent_dirs, normalize_env_path, parse_windows_args};
+    use setupweaver_common::{PackagedChunk, PackagedFile};
+
+    use super::{append_path_entry, chunk_output_offsets, missing_parent_dirs, normalize_env_path, parse_windows_args};
 
     #[test]
     fn appends_missing_path_entry() {
@@ -986,5 +1099,32 @@ mod tests {
     fn no_missing_dirs_when_parent_exists() {
         let dirs = missing_parent_dirs(Some(Path::new(".")));
         assert!(dirs.is_empty());
+    }
+
+    #[test]
+    fn chunk_offsets_are_prefix_sums() {
+        let file = PackagedFile {
+            destination: String::from("out.bin"),
+            size: 30,
+            chunks: vec![
+                PackagedChunk {
+                    payload_offset: 0,
+                    compressed_size: 5,
+                    uncompressed_size: 10,
+                },
+                PackagedChunk {
+                    payload_offset: 5,
+                    compressed_size: 6,
+                    uncompressed_size: 8,
+                },
+                PackagedChunk {
+                    payload_offset: 11,
+                    compressed_size: 7,
+                    uncompressed_size: 12,
+                },
+            ],
+        };
+
+        assert_eq!(chunk_output_offsets(&file), vec![0, 10, 18]);
     }
 }
