@@ -81,6 +81,15 @@ Silent install:
 ./target/release/hello-setup.exe --silent
 ```
 
+Quoted post-install args with spaces are supported. Example:
+
+```toml
+[[run]]
+cmd = "{install_dir}\\HelloApp.exe"
+args = "--profile \"safe install\" --root \"{install_dir}\\data\""
+when = "finish"
+```
+
 ## install.toml shape
 
 ```toml
@@ -114,5 +123,4 @@ exclude = ["*.pdb"]
 
 - reduce runtime stub size
 - v2 indexed payload format for true parallel extraction
-- proper Windows argument quoting for `[[run]]`
 - per-config UAC manifest pipeline

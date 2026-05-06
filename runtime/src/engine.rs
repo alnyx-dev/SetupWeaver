@@ -88,6 +88,8 @@ pub enum EngineError {
         #[source]
         source: std::io::Error,
     },
+    #[error("invalid argument string {value}: {reason}")]
+    InvalidArguments { value: String, reason: String },
     #[error("failed to read embedded archive: {0}")]
     Archive(#[from] std::io::Error),
     #[cfg(windows)]
@@ -302,8 +304,9 @@ impl InstallerEngine {
 
             let program = resolve_template(&hook.cmd, context)?;
             let mut command = Command::new(&program);
-            for arg in split_args(&hook.args) {
-                command.arg(resolve_arg_tokens(arg, context));
+            let resolved_args = resolve_arg_tokens(&hook.args, context);
+            for arg in parse_windows_args(&resolved_args)? {
+                command.arg(arg);
             }
             command.spawn().map_err(|source| EngineError::LaunchCommand {
                 program: program.display().to_string(),
@@ -559,8 +562,77 @@ fn resolve_arg_tokens(input: &str, context: &InstallContext) -> String {
         .replace("{install_dir}", &context.install_dir.display().to_string())
 }
 
-fn split_args(args: &str) -> impl Iterator<Item = &str> {
-    args.split_whitespace().filter(|value| !value.is_empty())
+fn parse_windows_args(value: &str) -> Result<Vec<String>, EngineError> {
+    let mut args = Vec::new();
+    let characters = value.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+
+    while index < characters.len() {
+        while index < characters.len() && characters[index].is_whitespace() {
+            index += 1;
+        }
+        if index >= characters.len() {
+            break;
+        }
+
+        let mut argument = String::new();
+        let mut in_quotes = false;
+        let mut backslashes = 0usize;
+
+        while index < characters.len() {
+            let ch = characters[index];
+            index += 1;
+
+            match ch {
+                '\\' => backslashes += 1,
+                '"' => {
+                    for _ in 0..(backslashes / 2) {
+                        argument.push('\\');
+                    }
+
+                    if backslashes % 2 == 1 {
+                        argument.push('"');
+                    } else if in_quotes && index < characters.len() && characters[index] == '"' {
+                        argument.push('"');
+                        index += 1;
+                    } else {
+                        in_quotes = !in_quotes;
+                    }
+
+                    backslashes = 0;
+                }
+                _ if ch.is_whitespace() && !in_quotes => {
+                    for _ in 0..backslashes {
+                        argument.push('\\');
+                    }
+                    backslashes = 0;
+                    break;
+                }
+                _ => {
+                    for _ in 0..backslashes {
+                        argument.push('\\');
+                    }
+                    backslashes = 0;
+                    argument.push(ch);
+                }
+            }
+        }
+
+        for _ in 0..backslashes {
+            argument.push('\\');
+        }
+
+        if in_quotes {
+            return Err(EngineError::InvalidArguments {
+                value: value.to_string(),
+                reason: String::from("missing closing quote"),
+            });
+        }
+
+        args.push(argument);
+    }
+
+    Ok(args)
 }
 
 fn append_path_entry(current: &str, entry: &str) -> String {
@@ -741,7 +813,7 @@ fn broadcast_environment_change() -> Result<(), EngineError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_path_entry, normalize_env_path};
+    use super::{append_path_entry, normalize_env_path, parse_windows_args};
 
     #[test]
     fn appends_missing_path_entry() {
@@ -758,5 +830,23 @@ mod tests {
     #[test]
     fn normalizes_trailing_slashes() {
         assert_eq!(normalize_env_path(r" C:/Apps/Hello/ "), r"C:\Apps\Hello");
+    }
+
+    #[test]
+    fn parses_windows_quoted_arguments() {
+        let args = parse_windows_args(r#"--mode "safe install" --flag"#).unwrap();
+        assert_eq!(args, vec!["--mode", "safe install", "--flag"]);
+    }
+
+    #[test]
+    fn preserves_backslashes_before_quotes() {
+        let args = parse_windows_args(r#"--path "C:\Program Files\Hello\\""#).unwrap();
+        assert_eq!(args, vec!["--path", r#"C:\Program Files\Hello\"#]);
+    }
+
+    #[test]
+    fn rejects_unbalanced_quotes() {
+        let error = parse_windows_args(r#"--mode "broken"#).unwrap_err();
+        assert!(error.to_string().contains("missing closing quote"));
     }
 }
