@@ -5,8 +5,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/alnyx-dev/SetupWeaver/actions"><img src="https://github.com/alnyx-dev/SetupWeaver/actions/workflows/rust.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/alnyx-dev/SetupWeaver/releases"><img src="https://img.shields.io/github/v/release/alnyx-dev/SetupWeaver?label=release&color=blue" alt="Release"></a>
+  <a href="https://github.com/alnyxcs/SetupWeaver/actions"><img src="https://github.com/alnyxcs/SetupWeaver/actions/workflows/rust.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/alnyxcs/SetupWeaver/releases"><img src="https://img.shields.io/github/v/release/alnyxcs/SetupWeaver?label=release&color=blue" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/lang-Rust-dea584?logo=rust" alt="Rust">
 </p>
