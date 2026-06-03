@@ -32,33 +32,54 @@ impl InstallConfig {
             errors.push(ValidationError::new("app.version", "must not be empty"));
         }
         if self.install.default_dir.trim().is_empty() {
-            errors.push(ValidationError::new("install.default_dir", "must not be empty"));
+            errors.push(ValidationError::new(
+                "install.default_dir",
+                "must not be empty",
+            ));
         }
         if self.files.is_empty() {
-            errors.push(ValidationError::new("files", "must contain at least one [[files]] entry"));
+            errors.push(ValidationError::new(
+                "files",
+                "must contain at least one [[files]] entry",
+            ));
         }
 
         for (index, file) in self.files.iter().enumerate() {
             if file.src.trim().is_empty() {
-                errors.push(ValidationError::new(format!("files[{index}].src"), "must not be empty"));
+                errors.push(ValidationError::new(
+                    format!("files[{index}].src"),
+                    "must not be empty",
+                ));
             }
             if file.dest.trim().is_empty() {
-                errors.push(ValidationError::new(format!("files[{index}].dest"), "must not be empty"));
+                errors.push(ValidationError::new(
+                    format!("files[{index}].dest"),
+                    "must not be empty",
+                ));
             }
         }
 
         for (index, shortcut) in self.shortcuts.iter().enumerate() {
             if shortcut.name.trim().is_empty() {
-                errors.push(ValidationError::new(format!("shortcuts[{index}].name"), "must not be empty"));
+                errors.push(ValidationError::new(
+                    format!("shortcuts[{index}].name"),
+                    "must not be empty",
+                ));
             }
             if shortcut.target.trim().is_empty() {
-                errors.push(ValidationError::new(format!("shortcuts[{index}].target"), "must not be empty"));
+                errors.push(ValidationError::new(
+                    format!("shortcuts[{index}].target"),
+                    "must not be empty",
+                ));
             }
         }
 
         for (index, key) in self.registry.iter().enumerate() {
             if key.key.trim().is_empty() {
-                errors.push(ValidationError::new(format!("registry[{index}].key"), "must not be empty"));
+                errors.push(ValidationError::new(
+                    format!("registry[{index}].key"),
+                    "must not be empty",
+                ));
             }
             for (value_index, value) in key.values.iter().enumerate() {
                 if value.name.trim().is_empty() {
@@ -72,7 +93,10 @@ impl InstallConfig {
 
         for (index, item) in self.run.iter().enumerate() {
             if item.cmd.trim().is_empty() {
-                errors.push(ValidationError::new(format!("run[{index}].cmd"), "must not be empty"));
+                errors.push(ValidationError::new(
+                    format!("run[{index}].cmd"),
+                    "must not be empty",
+                ));
             }
         }
 

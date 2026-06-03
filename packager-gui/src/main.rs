@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use setupweaver_common::{
-    FileSpec, InstallConfig, InstallSection, AppSection, UiSection, UiTheme,
-    ShortcutSpec, RegistryKeySpec, RegistryValueSpec, RegistryValueType, RunSpec, RunWhen,
+    AppSection, FileSpec, InstallConfig, InstallSection, RegistryKeySpec, RegistryValueSpec,
+    RegistryValueType, RunSpec, RunWhen, ShortcutSpec, UiSection, UiTheme,
 };
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 
@@ -461,7 +461,9 @@ fn setup_config_io(window: &PackagerWindow, state: &Arc<Mutex<AppState>>) {
                     match std::fs::write(&path, toml_str) {
                         Ok(()) => {
                             w.set_config_path(path.display().to_string().into());
-                            w.set_build_status(format!("Config saved to {}", path.display()).into());
+                            w.set_build_status(
+                                format!("Config saved to {}", path.display()).into(),
+                            );
                         }
                         Err(e) => {
                             w.set_build_status(format!("Failed to save: {e}").into());
@@ -603,9 +605,7 @@ fn collect_config_from_ui(w: &PackagerWindow) -> InstallConfig {
             .map(|entry| FileSpec {
                 src: entry.src.to_string(),
                 dest: entry.dest.to_string(),
-                exclude: entry
-                    .exclude
-                    .to_string()
+                exclude: AsRef::<str>::as_ref(&entry.exclude)
                     .split(',')
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty())
@@ -632,7 +632,7 @@ fn collect_config_from_ui(w: &PackagerWindow) -> InstallConfig {
         (0..model.row_count())
             .filter_map(|i| model.row_data(i))
             .map(|entry| {
-                let values = parse_registry_values(&entry.values.to_string());
+                let values = parse_registry_values(entry.values.as_ref());
                 RegistryKeySpec {
                     key: entry.key.to_string(),
                     values,
@@ -659,27 +659,51 @@ fn collect_config_from_ui(w: &PackagerWindow) -> InstallConfig {
 
     let publisher = {
         let v = w.get_app_publisher().to_string();
-        if v.trim().is_empty() { None } else { Some(v) }
+        if v.trim().is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
     let description = {
         let v = w.get_app_description().to_string();
-        if v.trim().is_empty() { None } else { Some(v) }
+        if v.trim().is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
     let icon = {
         let v = w.get_app_icon().to_string();
-        if v.trim().is_empty() { None } else { Some(v) }
+        if v.trim().is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
     let accent_color = {
         let v = w.get_accent_color().to_string();
-        if v.trim().is_empty() { None } else { Some(v) }
+        if v.trim().is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
     let welcome_text = {
         let v = w.get_welcome_text().to_string();
-        if v.trim().is_empty() { None } else { Some(v) }
+        if v.trim().is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
     let license_file = {
         let v = w.get_license_file().to_string();
-        if v.trim().is_empty() { None } else { Some(v) }
+        if v.trim().is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
 
     InstallConfig {
@@ -726,7 +750,14 @@ fn apply_config_to_ui(w: &PackagerWindow, config: &InstallConfig) {
         UiTheme::Light => 1,
         UiTheme::System => 2,
     });
-    w.set_accent_color(config.ui.accent_color.clone().unwrap_or_else(|| String::from("#7c3aed")).into());
+    w.set_accent_color(
+        config
+            .ui
+            .accent_color
+            .clone()
+            .unwrap_or_else(|| String::from("#7c3aed"))
+            .into(),
+    );
     w.set_welcome_text(config.ui.welcome_text.clone().unwrap_or_default().into());
     w.set_license_file(config.ui.license_file.clone().unwrap_or_default().into());
 
