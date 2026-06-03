@@ -531,10 +531,7 @@ data = "x"
 "##;
         let config = InstallConfig::parse(toml).unwrap();
         let err = config.validate().unwrap_err();
-        assert!(err
-            .0
-            .iter()
-            .any(|e| e.path == "registry[0].values[0].name"));
+        assert!(err.0.iter().any(|e| e.path == "registry[0].values[0].name"));
     }
 
     #[test]

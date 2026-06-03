@@ -66,13 +66,11 @@ mod tests {
                 PackagedFile {
                     destination: "app.exe".into(),
                     size: 1024,
-                    chunks: vec![
-                        PackagedChunk {
-                            payload_offset: 0,
-                            compressed_size: 500,
-                            uncompressed_size: 1024,
-                        },
-                    ],
+                    chunks: vec![PackagedChunk {
+                        payload_offset: 0,
+                        compressed_size: 500,
+                        uncompressed_size: 1024,
+                    }],
                 },
                 PackagedFile {
                     destination: "data.bin".into(),
