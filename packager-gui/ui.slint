@@ -4,34 +4,25 @@ import { Button, LineEdit, TextEdit, CheckBox, ComboBox, VerticalBox, Horizontal
 component NavItem inherits Rectangle {
     in property <string> label;
     in property <bool> active;
-    in property <color> accent;
     callback clicked();
 
-    height: 42px;
-    border-radius: 14px;
-    background: active ? #162033 : transparent;
+    height: 36px;
+    border-radius: 4px;
+    background: root.active ? #e8f0fe : transparent;
 
     touch := TouchArea {
         clicked => { root.clicked(); }
     }
 
     HorizontalBox {
-        padding-left: 14px;
-        padding-right: 14px;
-        spacing: 10px;
-
-        Rectangle {
-            width: 8px;
-            height: 8px;
-            border-radius: 4px;
-            background: root.active ? root.accent : #384860;
-            y: parent.height / 2 - self.height / 2;
-        }
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 8px;
 
         Text {
             text: root.label;
-            color: root.active ? white : #9fb0ca;
-            font-size: 14px;
+            color: root.active ? #1e1e1e : #616161;
+            font-size: 13px;
             font-weight: root.active ? 600 : 400;
             vertical-alignment: center;
         }
@@ -39,20 +30,22 @@ component NavItem inherits Rectangle {
 }
 
 component SectionHeader inherits Text {
-    color: white;
+    color: #1e1e1e;
     font-size: 22px;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 component FieldLabel inherits Text {
-    color: #9fb0ca;
-    font-size: 13px;
+    color: #616161;
+    font-size: 12px;
     font-weight: 500;
 }
 
 component Card inherits Rectangle {
-    border-radius: 18px;
-    background: #0d1424;
+    border-radius: 4px;
+    background: #ffffff;
+    border-width: 1px;
+    border-color: #e0e0e0;
 }
 
 component FileEntry inherits Rectangle {
@@ -66,21 +59,23 @@ component FileEntry inherits Rectangle {
     callback exclude_changed(int, string);
     callback browse_src(int);
 
-    border-radius: 14px;
-    background: #121c2f;
-    height: 160px;
+    border-radius: 4px;
+    background: #fafafa;
+    border-width: 1px;
+    border-color: #e0e0e0;
+    height: 140px;
 
     VerticalBox {
-        padding: 14px;
+        padding: 12px;
         spacing: 8px;
 
         HorizontalBox {
             spacing: 8px;
 
             Text {
-                text: "File Rule #" + (root.entry_index + 1);
-                color: white;
-                font-size: 14px;
+                text: "Rule #" + (root.entry_index + 1);
+                color: #1e1e1e;
+                font-size: 13px;
                 font-weight: 600;
                 vertical-alignment: center;
             }
@@ -127,7 +122,7 @@ component FileEntry inherits Rectangle {
 
         VerticalBox {
             spacing: 4px;
-            FieldLabel { text: "Exclude patterns (comma-separated)"; }
+            FieldLabel { text: "Exclude (comma-separated)"; }
             exclude-edit := LineEdit {
                 text: root.exclude_text;
                 edited(value) => { root.exclude_changed(root.entry_index, value); }
@@ -148,12 +143,14 @@ component ShortcutEntry inherits Rectangle {
     callback args_changed(int, string);
     callback icon_changed(int, string);
 
-    border-radius: 14px;
-    background: #121c2f;
-    height: 128px;
+    border-radius: 4px;
+    background: #fafafa;
+    border-width: 1px;
+    border-color: #e0e0e0;
+    height: 120px;
 
     VerticalBox {
-        padding: 14px;
+        padding: 12px;
         spacing: 8px;
 
         HorizontalBox {
@@ -161,8 +158,8 @@ component ShortcutEntry inherits Rectangle {
 
             Text {
                 text: "Shortcut #" + (root.entry_index + 1);
-                color: white;
-                font-size: 14px;
+                color: #1e1e1e;
+                font-size: 13px;
                 font-weight: 600;
                 vertical-alignment: center;
             }
@@ -233,12 +230,14 @@ component RegistryEntry inherits Rectangle {
     callback key_changed(int, string);
     callback values_changed(int, string);
 
-    border-radius: 14px;
-    background: #121c2f;
-    height: 128px;
+    border-radius: 4px;
+    background: #fafafa;
+    border-width: 1px;
+    border-color: #e0e0e0;
+    height: 120px;
 
     VerticalBox {
-        padding: 14px;
+        padding: 12px;
         spacing: 8px;
 
         HorizontalBox {
@@ -246,8 +245,8 @@ component RegistryEntry inherits Rectangle {
 
             Text {
                 text: "Registry #" + (root.entry_index + 1);
-                color: white;
-                font-size: 14px;
+                color: #1e1e1e;
+                font-size: 13px;
                 font-weight: 600;
                 vertical-alignment: center;
             }
@@ -262,7 +261,7 @@ component RegistryEntry inherits Rectangle {
 
         VerticalBox {
             spacing: 4px;
-            FieldLabel { text: "Key (e.g. HKCU\\\\Software\\\\MyApp)"; }
+            FieldLabel { text: "Key (e.g. HKCU\\Software\\MyApp)"; }
             LineEdit {
                 text: root.key_text;
                 edited(value) => { root.key_changed(root.entry_index, value); }
@@ -290,12 +289,14 @@ component RunEntry inherits Rectangle {
     callback args_changed(int, string);
     callback when_changed(int, int);
 
-    border-radius: 14px;
-    background: #121c2f;
-    height: 96px;
+    border-radius: 4px;
+    background: #fafafa;
+    border-width: 1px;
+    border-color: #e0e0e0;
+    height: 90px;
 
     VerticalBox {
-        padding: 14px;
+        padding: 12px;
         spacing: 8px;
 
         HorizontalBox {
@@ -303,8 +304,8 @@ component RunEntry inherits Rectangle {
 
             Text {
                 text: "Hook #" + (root.entry_index + 1);
-                color: white;
-                font-size: 14px;
+                color: #1e1e1e;
+                font-size: 13px;
                 font-weight: 600;
                 vertical-alignment: center;
             }
@@ -400,7 +401,7 @@ export component PackagerWindow inherits Window {
 
     // UI section
     in-out property <int> theme_index: 2;
-    in-out property <string> accent_color: "#7c3aed";
+    in-out property <string> accent_color: "#0078d4";
     in-out property <string> welcome_text: "";
     in-out property <string> license_file: "";
 
@@ -428,7 +429,6 @@ export component PackagerWindow inherits Window {
 
     // Navigation
     in-out property <int> current_page: 0;
-    in-out property <color> accent: #7c3aed;
 
     // Callbacks
     callback nav_clicked(int);
@@ -465,147 +465,104 @@ export component PackagerWindow inherits Window {
     callback generate_toml() -> string;
 
     title: "SetupWeaver Packager";
-    preferred-width: 1060px;
-    preferred-height: 700px;
-    min-width: 960px;
-    min-height: 640px;
-    background: #0b1020;
+    preferred-width: 960px;
+    preferred-height: 640px;
+    min-width: 880px;
+    min-height: 580px;
+    background: #f3f3f3;
 
     HorizontalBox {
-        padding: 20px;
-        spacing: 18px;
+        padding: 0px;
+        spacing: 0px;
 
-        // Left sidebar
+        // Sidebar
         Rectangle {
-            width: 220px;
-            border-radius: 20px;
-            background: #101827;
+            width: 200px;
+            background: #ffffff;
 
             VerticalBox {
-                padding: 18px;
-                spacing: 6px;
+                padding: 16px;
+                spacing: 4px;
 
-                // Logo
-                Rectangle {
-                    height: 72px;
-                    border-radius: 16px;
-                    background: #141f33;
-
-                    Rectangle {
-                        x: 14px;
-                        y: 14px;
-                        width: 44px;
-                        height: 44px;
-                        border-radius: 14px;
-                        background: root.accent;
-
-                        Text {
-                            text: "SW";
-                            color: white;
-                            font-size: 16px;
-                            font-weight: 800;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                            width: parent.width;
-                            height: parent.height;
-                        }
-                    }
+                // Header
+                VerticalBox {
+                    spacing: 2px;
+                    padding-bottom: 12px;
 
                     Text {
-                        x: 70px;
-                        y: 14px;
                         text: "SetupWeaver";
-                        color: white;
-                        font-size: 17px;
-                        font-weight: 700;
+                        color: #1e1e1e;
+                        font-size: 15px;
+                        font-weight: 600;
                     }
 
                     Text {
-                        x: 70px;
-                        y: 38px;
-                        text: "Packager Studio";
-                        color: #93a4bf;
+                        text: "Packager";
+                        color: #9e9e9e;
                         font-size: 12px;
                     }
                 }
 
+                Rectangle { height: 1px; background: #e0e0e0; }
                 Rectangle { height: 8px; }
-
-                Text {
-                    text: "CONFIGURATION";
-                    color: #5a6e88;
-                    font-size: 11px;
-                    font-weight: 700;
-                }
 
                 NavItem {
                     label: "App Info";
                     active: root.current_page == 0;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(0); }
                 }
 
                 NavItem {
                     label: "Install Settings";
                     active: root.current_page == 1;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(1); }
                 }
 
                 NavItem {
                     label: "Files";
                     active: root.current_page == 2;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(2); }
                 }
 
                 NavItem {
                     label: "UI & Branding";
                     active: root.current_page == 3;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(3); }
                 }
 
                 NavItem {
                     label: "Shortcuts";
                     active: root.current_page == 4;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(4); }
                 }
 
                 NavItem {
                     label: "Registry";
                     active: root.current_page == 5;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(5); }
                 }
 
                 NavItem {
                     label: "Run Hooks";
                     active: root.current_page == 6;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(6); }
                 }
 
-                Rectangle { height: 10px; }
-
-                Text {
-                    text: "OUTPUT";
-                    color: #5a6e88;
-                    font-size: 11px;
-                    font-weight: 700;
-                }
+                Rectangle { height: 8px; }
+                Rectangle { height: 1px; background: #e0e0e0; }
+                Rectangle { height: 8px; }
 
                 NavItem {
                     label: "Build";
                     active: root.current_page == 7;
-                    accent: root.accent;
                     clicked => { root.nav_clicked(7); }
                 }
 
                 Rectangle { vertical-stretch: 1; }
 
-                // Bottom actions
+                Rectangle { height: 1px; background: #e0e0e0; }
+                Rectangle { height: 8px; }
+
                 HorizontalBox {
                     spacing: 6px;
 
@@ -627,8 +584,7 @@ export component PackagerWindow inherits Window {
         // Main content
         Rectangle {
             horizontal-stretch: 1;
-            border-radius: 20px;
-            background: #101827;
+            background: #f3f3f3;
 
             VerticalBox {
                 padding: 24px;
@@ -707,17 +663,17 @@ export component PackagerWindow inherits Window {
                                 FieldLabel { text: "Default Install Directory *"; }
                                 LineEdit {
                                     text <=> root.default_dir;
-                                    placeholder-text: "{ProgramFiles}\\\\My App";
+                                    placeholder-text: "{ProgramFiles}\\My App";
                                 }
 
                                 Text {
                                     text: "Tokens: {ProgramFiles}, {AppData}, {Desktop}, {Temp}, {AppName}";
-                                    color: #5a6e88;
-                                    font-size: 12px;
+                                    color: #9e9e9e;
+                                    font-size: 11px;
                                     wrap: word-wrap;
                                 }
 
-                                Rectangle { height: 1px; background: #1a2537; }
+                                Rectangle { height: 1px; background: #e0e0e0; }
 
                                 CheckBox {
                                     text: "Add to system PATH";
@@ -760,14 +716,16 @@ export component PackagerWindow inherits Window {
                                 spacing: 12px;
 
                                 if root.file_entries.length == 0 : Rectangle {
-                                    height: 80px;
-                                    border-radius: 14px;
-                                    background: #121c2f;
+                                    height: 60px;
+                                    border-radius: 4px;
+                                    background: #fafafa;
+                                    border-width: 1px;
+                                    border-color: #e0e0e0;
 
                                     Text {
-                                        text: "No file rules yet. Click \"+ Add File Rule\" to get started.";
-                                        color: #5a6e88;
-                                        font-size: 14px;
+                                        text: "No file rules yet. Click \"+ Add File Rule\" to begin.";
+                                        color: #9e9e9e;
+                                        font-size: 13px;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                         width: parent.width;
@@ -816,14 +774,14 @@ export component PackagerWindow inherits Window {
                                     spacing: 10px;
                                     LineEdit {
                                         text <=> root.accent_color;
-                                        placeholder-text: "#7c3aed";
+                                        placeholder-text: "#0078d4";
                                         horizontal-stretch: 1;
                                     }
                                     Rectangle {
-                                        width: 36px;
-                                        height: 36px;
-                                        border-radius: 8px;
-                                        background: root.accent;
+                                        width: 32px;
+                                        height: 32px;
+                                        border-radius: 4px;
+                                        background: #0078d4;
                                     }
                                 }
 
@@ -873,19 +831,20 @@ export component PackagerWindow inherits Window {
                                 spacing: 12px;
 
                                 if root.shortcut_entries.length == 0 : Rectangle {
-                                    height: 80px;
-                                    border-radius: 14px;
-                                    background: #121c2f;
+                                    height: 60px;
+                                    border-radius: 4px;
+                                    background: #fafafa;
+                                    border-width: 1px;
+                                    border-color: #e0e0e0;
 
                                     Text {
-                                        text: "No shortcuts defined. The installer will auto-create one if desktop shortcut is enabled.";
-                                        color: #5a6e88;
-                                        font-size: 14px;
+                                        text: "No shortcuts defined.";
+                                        color: #9e9e9e;
+                                        font-size: 13px;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                         width: parent.width;
                                         height: parent.height;
-                                        wrap: word-wrap;
                                     }
                                 }
 
@@ -928,19 +887,20 @@ export component PackagerWindow inherits Window {
                                 spacing: 12px;
 
                                 if root.registry_entries.length == 0 : Rectangle {
-                                    height: 80px;
-                                    border-radius: 14px;
-                                    background: #121c2f;
+                                    height: 60px;
+                                    border-radius: 4px;
+                                    background: #fafafa;
+                                    border-width: 1px;
+                                    border-color: #e0e0e0;
 
                                     Text {
-                                        text: "No registry entries defined. Most simple installers don't need custom registry keys.";
-                                        color: #5a6e88;
-                                        font-size: 14px;
+                                        text: "No registry entries defined.";
+                                        color: #9e9e9e;
+                                        font-size: 13px;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                         width: parent.width;
                                         height: parent.height;
-                                        wrap: word-wrap;
                                     }
                                 }
 
@@ -979,19 +939,20 @@ export component PackagerWindow inherits Window {
                                 spacing: 12px;
 
                                 if root.run_entries.length == 0 : Rectangle {
-                                    height: 80px;
-                                    border-radius: 14px;
-                                    background: #121c2f;
+                                    height: 60px;
+                                    border-radius: 4px;
+                                    background: #fafafa;
+                                    border-width: 1px;
+                                    border-color: #e0e0e0;
 
                                     Text {
-                                        text: "No run hooks defined. Add post-install commands to launch after installation.";
-                                        color: #5a6e88;
-                                        font-size: 14px;
+                                        text: "No run hooks defined.";
+                                        color: #9e9e9e;
+                                        font-size: 13px;
                                         horizontal-alignment: center;
                                         vertical-alignment: center;
                                         width: parent.width;
                                         height: parent.height;
-                                        wrap: word-wrap;
                                     }
                                 }
 
@@ -1087,7 +1048,7 @@ export component PackagerWindow inherits Window {
                                 }
                             }
 
-                            Rectangle { height: 1px; background: #1a2537; }
+                            Rectangle { height: 1px; background: #e0e0e0; }
 
                             HorizontalBox {
                                 spacing: 10px;
@@ -1116,23 +1077,23 @@ export component PackagerWindow inherits Window {
                             spacing: 10px;
 
                             if root.building : Rectangle {
-                                height: 10px;
-                                border-radius: 999px;
-                                background: #1a2537;
+                                height: 6px;
+                                border-radius: 3px;
+                                background: #e0e0e0;
 
                                 Rectangle {
                                     width: parent.width * clamp(root.build_progress, 0, 1);
                                     height: parent.height;
-                                    border-radius: 999px;
-                                    background: root.accent;
+                                    border-radius: 3px;
+                                    background: #0078d4;
                                 }
                             }
 
                             Text {
                                 text: root.build_status;
-                                color: white;
-                                font-size: 15px;
-                                font-weight: 600;
+                                color: #1e1e1e;
+                                font-size: 14px;
+                                font-weight: 500;
                                 wrap: word-wrap;
                             }
                         }
@@ -1147,8 +1108,8 @@ export component PackagerWindow inherits Window {
 
                             Text {
                                 text: "Build Log";
-                                color: #9fb0ca;
-                                font-size: 13px;
+                                color: #616161;
+                                font-size: 12px;
                                 font-weight: 600;
                             }
 

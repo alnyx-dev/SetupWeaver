@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Assets/banner.png" alt="SetupWeaver" width="100%">
+</p>
+
 <h1 align="center">SetupWeaver</h1>
 
 <p align="center">
