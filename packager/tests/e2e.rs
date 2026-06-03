@@ -17,7 +17,13 @@ fn installer_can_install_and_uninstall_silently() {
     let runtime_admin = target_dir.join("setupweaver-runtime-admin.exe");
 
     let status = Command::new("cargo")
-        .args(["build", "-p", "setupweaver-runtime", "-p", "setupweaver-runtime-admin"])
+        .args([
+            "build",
+            "-p",
+            "setupweaver-runtime",
+            "-p",
+            "setupweaver-runtime-admin",
+        ])
         .current_dir(&workspace_root)
         .status()
         .expect("cargo build should start");
@@ -29,7 +35,8 @@ fn installer_can_install_and_uninstall_silently() {
     let install_dir = temp_root.join("install-root");
     let app_dir = temp_root.join("app");
     std::fs::create_dir_all(&app_dir).expect("app dir should be created");
-    std::fs::write(app_dir.join("hello.txt"), b"hello setupweaver\n").expect("sample payload should be written");
+    std::fs::write(app_dir.join("hello.txt"), b"hello setupweaver\n")
+        .expect("sample payload should be written");
     let config_path = temp_root.join("install.toml");
     std::fs::write(
         &config_path,
@@ -70,7 +77,11 @@ fn installer_can_install_and_uninstall_silently() {
     assert!(status.success(), "packager failed: {status:?}");
 
     let status = Command::new(&setup_exe)
-        .args(["--silent", "--install-dir", install_dir.to_string_lossy().as_ref()])
+        .args([
+            "--silent",
+            "--install-dir",
+            install_dir.to_string_lossy().as_ref(),
+        ])
         .status()
         .expect("installer should start");
     assert!(status.success(), "installer failed: {status:?}");
@@ -82,7 +93,11 @@ fn installer_can_install_and_uninstall_silently() {
     assert!(state_file.exists());
 
     let status = Command::new(&setup_exe)
-        .args(["--uninstall", "--install-dir", install_dir.to_string_lossy().as_ref()])
+        .args([
+            "--uninstall",
+            "--install-dir",
+            install_dir.to_string_lossy().as_ref(),
+        ])
         .status()
         .expect("uninstaller should start");
     assert!(status.success(), "uninstaller failed: {status:?}");
@@ -99,7 +114,10 @@ fn unique_temp_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("time should move forward")
         .as_nanos();
-    std::env::temp_dir().join(format!("setupweaver-e2e-{}-{timestamp}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "setupweaver-e2e-{}-{timestamp}",
+        std::process::id()
+    ))
 }
 
 fn wait_until_missing(path: &Path) {

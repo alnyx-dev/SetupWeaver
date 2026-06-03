@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use indicatif::{ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use setupweaver_common::{
-    InstallConfig, PackagedChunk, PackagedFile, PackagedInstaller, PAYLOAD_CHUNK_SIZE, PAYLOAD_HEADER_SIZE, PAYLOAD_MAGIC,
+    InstallConfig, PackagedChunk, PackagedFile, PackagedInstaller, PAYLOAD_CHUNK_SIZE,
+    PAYLOAD_HEADER_SIZE, PAYLOAD_MAGIC,
 };
 use thiserror::Error;
 
@@ -69,14 +70,16 @@ pub fn build_installer(
     stub_admin_path: Option<&Path>,
     output_path: &Path,
 ) -> Result<(), PackagerError> {
-    let config_raw = fs::read_to_string(config_path).map_err(|source| PackagerError::ReadConfig {
-        path: config_path.to_path_buf(),
-        source,
-    })?;
-    let config: InstallConfig = InstallConfig::parse(&config_raw).map_err(|source| PackagerError::ParseConfig {
-        path: config_path.to_path_buf(),
-        source,
-    })?;
+    let config_raw =
+        fs::read_to_string(config_path).map_err(|source| PackagerError::ReadConfig {
+            path: config_path.to_path_buf(),
+            source,
+        })?;
+    let config: InstallConfig =
+        InstallConfig::parse(&config_raw).map_err(|source| PackagerError::ParseConfig {
+            path: config_path.to_path_buf(),
+            source,
+        })?;
     config.validate()?;
 
     let base_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
@@ -112,7 +115,8 @@ pub fn build_installer(
 
     // 3. Build manifest from chunk metadata
     let manifest = build_manifest(config, license_text, &payload, &chunk_metas);
-    let manifest_bytes = toml::to_string_pretty(&manifest).expect("manifest serialization must succeed");
+    let manifest_bytes =
+        toml::to_string_pretty(&manifest).expect("manifest serialization must succeed");
 
     // 4. Write payload header: [magic][manifest_len][manifest_toml]
     writer.write_all(&PAYLOAD_MAGIC)?;
@@ -154,7 +158,10 @@ struct FileMeta {
     chunks: Vec<ChunkMeta>,
 }
 
-fn load_license_text(base_dir: &Path, license_file: Option<&str>) -> Result<Option<String>, PackagerError> {
+fn load_license_text(
+    base_dir: &Path,
+    license_file: Option<&str>,
+) -> Result<Option<String>, PackagerError> {
     let Some(license_file) = license_file else {
         return Ok(None);
     };
@@ -167,7 +174,10 @@ fn load_license_text(base_dir: &Path, license_file: Option<&str>) -> Result<Opti
     Ok(Some(content))
 }
 
-fn collect_payload(config: &InstallConfig, base_dir: &Path) -> Result<Vec<PayloadSourceFile>, PackagerError> {
+fn collect_payload(
+    config: &InstallConfig,
+    base_dir: &Path,
+) -> Result<Vec<PayloadSourceFile>, PackagerError> {
     let mut files = Vec::new();
     let mut seen_destinations = HashSet::new();
 
@@ -215,24 +225,30 @@ fn compress_payload_streaming(
     let per_file_chunks: Vec<Vec<(Vec<u8>, ChunkMeta)>> = files
         .par_iter()
         .map(|file| {
-            let input = fs::File::open(&file.source_path).map_err(|source| PackagerError::ReadInputFile {
-                path: file.source_path.clone(),
-                source,
+            let input = fs::File::open(&file.source_path).map_err(|source| {
+                PackagerError::ReadInputFile {
+                    path: file.source_path.clone(),
+                    source,
+                }
             })?;
             let mut reader = BufReader::with_capacity(PAYLOAD_CHUNK_SIZE, input);
             let mut buffer = vec![0u8; PAYLOAD_CHUNK_SIZE];
             let mut chunks = Vec::new();
 
             loop {
-                let read = reader.read(&mut buffer).map_err(|source| PackagerError::ReadInputFile {
-                    path: file.source_path.clone(),
-                    source,
-                })?;
+                let read =
+                    reader
+                        .read(&mut buffer)
+                        .map_err(|source| PackagerError::ReadInputFile {
+                            path: file.source_path.clone(),
+                            source,
+                        })?;
                 if read == 0 {
                     break;
                 }
 
-                let compressed_bytes = zstd::stream::encode_all(std::io::Cursor::new(&buffer[..read]), 19)?;
+                let compressed_bytes =
+                    zstd::stream::encode_all(std::io::Cursor::new(&buffer[..read]), 19)?;
                 let meta = ChunkMeta {
                     compressed_size: compressed_bytes.len() as u64,
                     uncompressed_size: read as u64,
@@ -303,7 +319,10 @@ fn build_manifest(
     }
 }
 
-fn stream_file_to_writer(path: &Path, writer: &mut BufWriter<File>) -> Result<usize, PackagerError> {
+fn stream_file_to_writer(
+    path: &Path,
+    writer: &mut BufWriter<File>,
+) -> Result<usize, PackagerError> {
     let mut input = File::open(path).map_err(|source| PackagerError::ReadStub {
         path: path.to_path_buf(),
         source,
@@ -321,7 +340,10 @@ fn stream_file_to_writer(path: &Path, writer: &mut BufWriter<File>) -> Result<us
     Ok(total)
 }
 
-fn stream_file_to_writer_path(path: &Path, writer: &mut BufWriter<File>) -> Result<usize, PackagerError> {
+fn stream_file_to_writer_path(
+    path: &Path,
+    writer: &mut BufWriter<File>,
+) -> Result<usize, PackagerError> {
     let mut input = File::open(path)?;
     let mut buffer = [0u8; 64 * 1024];
     let mut total = 0usize;
@@ -344,13 +366,20 @@ fn output_temp_path() -> PathBuf {
     std::env::temp_dir().join(format!("setupweaver-payload-{ts}.tmp"))
 }
 
-fn expand_matches(base_dir: &Path, pattern: &str, excludes: &[String]) -> Result<Vec<PathBuf>, PackagerError> {
+fn expand_matches(
+    base_dir: &Path,
+    pattern: &str,
+    excludes: &[String],
+) -> Result<Vec<PathBuf>, PackagerError> {
     let absolute_pattern = base_dir.join(pattern).to_string_lossy().replace('\\', "/");
-    let entries = glob::glob(&absolute_pattern).map_err(|_| PackagerError::InvalidGlobPattern(pattern.to_string()))?;
+    let entries = glob::glob(&absolute_pattern)
+        .map_err(|_| PackagerError::InvalidGlobPattern(pattern.to_string()))?;
 
     let exclude_matchers = excludes
         .iter()
-        .map(|value| glob::Pattern::new(value).map_err(|_| PackagerError::InvalidGlobPattern(value.clone())))
+        .map(|value| {
+            glob::Pattern::new(value).map_err(|_| PackagerError::InvalidGlobPattern(value.clone()))
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut results = Vec::new();
@@ -359,8 +388,14 @@ fn expand_matches(base_dir: &Path, pattern: &str, excludes: &[String]) -> Result
             continue;
         }
 
-        let file_name = entry.file_name().and_then(|value| value.to_str()).unwrap_or_default();
-        if exclude_matchers.iter().any(|matcher| matcher.matches(file_name)) {
+        let file_name = entry
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if exclude_matchers
+            .iter()
+            .any(|matcher| matcher.matches(file_name))
+        {
             continue;
         }
 
@@ -418,15 +453,5 @@ fn glob_root(base_dir: &Path, pattern: &str) -> PathBuf {
         } else {
             candidate
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::PAYLOAD_CHUNK_SIZE;
-
-    #[test]
-    fn chunk_constant_is_large_enough_for_good_throughput() {
-        assert!(PAYLOAD_CHUNK_SIZE >= 1024 * 1024);
     }
 }

@@ -38,26 +38,31 @@ pub struct InstallProgress {
     pub total_bytes: u64,
 }
 
+#[derive(Clone, Copy)]
+struct ProgressContext {
+    completed_files: usize,
+    total_files: usize,
+    completed_bytes: u64,
+    total_bytes: u64,
+}
+
 impl InstallProgress {
     fn new(
         phase: InstallPhase,
         progress: f32,
         status: impl Into<String>,
         detail: impl Into<String>,
-        completed_files: usize,
-        total_files: usize,
-        completed_bytes: u64,
-        total_bytes: u64,
+        ctx: &ProgressContext,
     ) -> Self {
         Self {
             phase,
             progress: progress.clamp(0.0, 1.0),
             status: status.into(),
             detail: detail.into(),
-            completed_files,
-            total_files,
-            completed_bytes,
-            total_bytes,
+            completed_files: ctx.completed_files,
+            total_files: ctx.total_files,
+            completed_bytes: ctx.completed_bytes,
+            total_bytes: ctx.total_bytes,
         }
     }
 }
@@ -201,53 +206,51 @@ impl InstallerEngine {
         Ok(())
     }
 
-    pub fn install_with_progress<F>(&self, install_dir: Option<&Path>, mut progress: F) -> Result<(), EngineError>
+    pub fn install_with_progress<F>(
+        &self,
+        install_dir: Option<&Path>,
+        mut progress: F,
+    ) -> Result<(), EngineError>
     where
         F: FnMut(InstallProgress),
     {
         let context = InstallContext::for_manifest(&self.manifest, install_dir)?;
         self.ensure_install_target_available(&context)?;
         let plans = self.build_extract_plans(&context)?;
-        let total_files = self.manifest.payload.len();
-        let total_bytes = self.manifest.payload.iter().map(|file| file.size).sum();
+        let mut ctx = ProgressContext {
+            completed_files: 0,
+            total_files: self.manifest.payload.len(),
+            completed_bytes: 0,
+            total_bytes: self.manifest.payload.iter().map(|file| file.size).sum(),
+        };
 
         progress(InstallProgress::new(
             InstallPhase::Preparing,
             0.02,
             "Preparing installer",
             context.install_dir.display().to_string(),
-            0,
-            total_files,
-            0,
-            total_bytes,
+            &ctx,
         ));
 
         let (mut rollback, completed_files, completed_bytes) =
-            self.extract_files_with_progress(&plans, &mut progress, total_files, total_bytes)?;
-        let metadata = match self.configure_system_with_progress(
-            &context,
-            &mut progress,
-            &mut rollback,
-            completed_files,
-            completed_bytes,
-            total_files,
-            total_bytes,
-        ) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                rollback.rollback();
-                return Err(error);
-            }
-        };
+            self.extract_files_with_progress(&plans, &mut progress, &ctx)?;
+        ctx.completed_files = completed_files;
+        ctx.completed_bytes = completed_bytes;
+        let metadata =
+            match self.configure_system_with_progress(&context, &mut progress, &mut rollback, &ctx)
+            {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    rollback.rollback();
+                    return Err(error);
+                }
+            };
         progress(InstallProgress::new(
             InstallPhase::Configuring,
             0.985,
             "Writing uninstall data",
             context.install_dir.display().to_string(),
-            completed_files,
-            total_files,
-            completed_bytes,
-            total_bytes,
+            &ctx,
         ));
         if let Err(error) = self.persist_install_state(&context, &plans, &metadata, &mut rollback) {
             rollback.rollback();
@@ -258,10 +261,7 @@ impl InstallerEngine {
             0.99,
             "Starting post-install tasks",
             self.manifest.config.app.name.clone(),
-            completed_files,
-            total_files,
-            completed_bytes,
-            total_bytes,
+            &ctx,
         ));
         if let Err(error) = self.run_hooks(&context, RunWhen::After) {
             rollback.rollback();
@@ -276,12 +276,19 @@ impl InstallerEngine {
     }
 
     pub fn uninstall(&self, install_dir: Option<&Path>) -> Result<(), EngineError> {
-        let install_dir = resolve_uninstall_dir(install_dir, self.payload.exe_path(), self.default_install_dir()?.as_path())?;
+        let install_dir = resolve_uninstall_dir(
+            install_dir,
+            self.payload.exe_path(),
+            self.default_install_dir()?.as_path(),
+        )?;
         let state = load_install_state(&install_dir)?;
         self.uninstall_from_state(&state, self.payload.exe_path())
     }
 
-    fn build_extract_plans(&self, context: &InstallContext) -> Result<Vec<ExtractPlan>, EngineError> {
+    fn build_extract_plans(
+        &self,
+        context: &InstallContext,
+    ) -> Result<Vec<ExtractPlan>, EngineError> {
         self.manifest
             .payload
             .iter()
@@ -297,11 +304,17 @@ impl InstallerEngine {
             .collect()
     }
 
-    fn extract_files_parallel(&self, plans: &[ExtractPlan]) -> Result<InstallRollback, EngineError> {
+    fn extract_files_parallel(
+        &self,
+        plans: &[ExtractPlan],
+    ) -> Result<InstallRollback, EngineError> {
         let rollback = Mutex::new(InstallRollback::default());
         let result = plans.par_iter().try_for_each(|plan| {
             self.write_extract_plan(plan, true)?;
-            rollback.lock().expect("rollback mutex poisoned").record_extraction(plan);
+            rollback
+                .lock()
+                .expect("rollback mutex poisoned")
+                .record_extraction(plan);
             Ok(())
         });
 
@@ -318,23 +331,18 @@ impl InstallerEngine {
         &self,
         plans: &[ExtractPlan],
         progress: &mut dyn FnMut(InstallProgress),
-        total_files: usize,
-        total_bytes: u64,
+        pctx: &ProgressContext,
     ) -> Result<(InstallRollback, usize, u64), EngineError> {
         let mut rollback = InstallRollback::default();
-        let mut completed_files = 0usize;
-        let mut completed_bytes = 0u64;
+        let mut ctx = ProgressContext { ..*pctx };
 
         for plan in plans {
             progress(InstallProgress::new(
                 InstallPhase::Extracting,
-                extraction_progress(completed_bytes, total_bytes),
+                extraction_progress(ctx.completed_bytes, ctx.total_bytes),
                 format!("Extracting {}", file_label(&plan.output_path)),
                 plan.output_path.display().to_string(),
-                completed_files,
-                total_files,
-                completed_bytes,
-                total_bytes,
+                &ctx,
             ));
 
             if let Err(error) = self.write_extract_plan(plan, false) {
@@ -343,24 +351,25 @@ impl InstallerEngine {
             }
             rollback.record_extraction(plan);
 
-            completed_files += 1;
-            completed_bytes = completed_bytes.saturating_add(plan.packaged.size);
+            ctx.completed_files += 1;
+            ctx.completed_bytes = ctx.completed_bytes.saturating_add(plan.packaged.size);
             progress(InstallProgress::new(
                 InstallPhase::Extracting,
-                extraction_progress(completed_bytes, total_bytes),
+                extraction_progress(ctx.completed_bytes, ctx.total_bytes),
                 format!("Installed {}", file_label(&plan.output_path)),
                 plan.output_path.display().to_string(),
-                completed_files,
-                total_files,
-                completed_bytes,
-                total_bytes,
+                &ctx,
             ));
         }
 
-        Ok((rollback, completed_files, completed_bytes))
+        Ok((rollback, ctx.completed_files, ctx.completed_bytes))
     }
 
-    fn write_extract_plan(&self, plan: &ExtractPlan, allow_parallel_chunks: bool) -> Result<(), EngineError> {
+    fn write_extract_plan(
+        &self,
+        plan: &ExtractPlan,
+        allow_parallel_chunks: bool,
+    ) -> Result<(), EngineError> {
         let result = if allow_parallel_chunks && plan.packaged.chunks.len() > 1 {
             self.write_payload_file_parallel(&plan.packaged, &plan.output_path)
         } else {
@@ -377,7 +386,11 @@ impl InstallerEngine {
         Ok(())
     }
 
-    fn write_payload_file_sequential(&self, packaged: &PackagedFile, output_path: &Path) -> Result<(), EngineError> {
+    fn write_payload_file_sequential(
+        &self,
+        packaged: &PackagedFile,
+        output_path: &Path,
+    ) -> Result<(), EngineError> {
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent).map_err(|source| EngineError::CreateDir {
                 path: parent.to_path_buf(),
@@ -391,7 +404,9 @@ impl InstallerEngine {
         })?;
         let mut writer = BufWriter::with_capacity(1024 * 1024, file);
         for (chunk_index, chunk) in packaged.chunks.iter().enumerate() {
-            let compressed = self.payload.payload_chunk_bytes(packaged, chunk, chunk_index)?;
+            let compressed = self
+                .payload
+                .payload_chunk_bytes(packaged, chunk, chunk_index)?;
             let mut decoder = zstd::stream::read::Decoder::new(Cursor::new(compressed))?;
             std::io::copy(&mut decoder, &mut writer).map_err(|source| EngineError::WriteFile {
                 path: output_path.to_path_buf(),
@@ -401,7 +416,11 @@ impl InstallerEngine {
         Ok(())
     }
 
-    fn write_payload_file_parallel(&self, packaged: &PackagedFile, output_path: &Path) -> Result<(), EngineError> {
+    fn write_payload_file_parallel(
+        &self,
+        packaged: &PackagedFile,
+        output_path: &Path,
+    ) -> Result<(), EngineError> {
         if let Some(parent) = output_path.parent() {
             fs::create_dir_all(parent).map_err(|source| EngineError::CreateDir {
                 path: parent.to_path_buf(),
@@ -409,14 +428,18 @@ impl InstallerEngine {
             })?;
         }
 
-        let file = Arc::new(File::create(output_path).map_err(|source| EngineError::CreateFile {
-            path: output_path.to_path_buf(),
-            source,
-        })?);
-        file.set_len(packaged.size).map_err(|source| EngineError::WriteFile {
-            path: output_path.to_path_buf(),
-            source,
-        })?;
+        let file =
+            Arc::new(
+                File::create(output_path).map_err(|source| EngineError::CreateFile {
+                    path: output_path.to_path_buf(),
+                    source,
+                })?,
+            );
+        file.set_len(packaged.size)
+            .map_err(|source| EngineError::WriteFile {
+                path: output_path.to_path_buf(),
+                source,
+            })?;
 
         let chunk_offsets = chunk_output_offsets(packaged);
         packaged
@@ -424,10 +447,14 @@ impl InstallerEngine {
             .par_iter()
             .enumerate()
             .try_for_each(|(chunk_index, chunk)| {
-                let compressed = self.payload.payload_chunk_bytes(packaged, chunk, chunk_index)?;
+                let compressed = self
+                    .payload
+                    .payload_chunk_bytes(packaged, chunk, chunk_index)?;
                 let mut decoder = zstd::stream::read::Decoder::new(Cursor::new(compressed))?;
                 let mut decoded = Vec::with_capacity(chunk.uncompressed_size as usize);
-                decoder.read_to_end(&mut decoded).map_err(EngineError::Archive)?;
+                decoder
+                    .read_to_end(&mut decoded)
+                    .map_err(EngineError::Archive)?;
                 if decoded.len() as u64 != chunk.uncompressed_size {
                     return Err(EngineError::ChunkSizeMismatch {
                         path: output_path.to_path_buf(),
@@ -437,14 +464,20 @@ impl InstallerEngine {
                     });
                 }
 
-                write_all_at(&file, chunk_offsets[chunk_index], &decoded).map_err(|source| EngineError::WriteFile {
-                    path: output_path.to_path_buf(),
-                    source,
+                write_all_at(&file, chunk_offsets[chunk_index], &decoded).map_err(|source| {
+                    EngineError::WriteFile {
+                        path: output_path.to_path_buf(),
+                        source,
+                    }
                 })
             })
     }
 
-    fn configure_system(&self, context: &InstallContext, rollback: &mut InstallRollback) -> Result<InstallMetadata, EngineError> {
+    fn configure_system(
+        &self,
+        context: &InstallContext,
+        rollback: &mut InstallRollback,
+    ) -> Result<InstallMetadata, EngineError> {
         let registry_values = self.apply_registry(context, rollback)?;
         let path_entry = self.update_path(context, rollback)?;
         let shortcuts = self.create_shortcuts(context, rollback)?;
@@ -460,20 +493,14 @@ impl InstallerEngine {
         context: &InstallContext,
         progress: &mut dyn FnMut(InstallProgress),
         rollback: &mut InstallRollback,
-        completed_files: usize,
-        completed_bytes: u64,
-        total_files: usize,
-        total_bytes: u64,
+        ctx: &ProgressContext,
     ) -> Result<InstallMetadata, EngineError> {
         progress(InstallProgress::new(
             InstallPhase::Configuring,
             0.90,
             "Writing registry entries",
             self.manifest.config.app.name.clone(),
-            completed_files,
-            total_files,
-            completed_bytes,
-            total_bytes,
+            ctx,
         ));
         let registry_values = self.apply_registry(context, rollback)?;
 
@@ -482,10 +509,7 @@ impl InstallerEngine {
             0.94,
             "Updating PATH",
             context.install_dir.display().to_string(),
-            completed_files,
-            total_files,
-            completed_bytes,
-            total_bytes,
+            ctx,
         ));
         let path_entry = self.update_path(context, rollback)?;
 
@@ -494,10 +518,7 @@ impl InstallerEngine {
             0.97,
             "Creating shortcuts",
             context.desktop.display().to_string(),
-            completed_files,
-            total_files,
-            completed_bytes,
-            total_bytes,
+            ctx,
         ));
         let shortcuts = self.create_shortcuts(context, rollback)?;
 
@@ -557,9 +578,11 @@ impl InstallerEngine {
 
         let uninstaller_path = uninstaller_path(&context.install_dir);
         let uninstaller_existed = uninstaller_path.exists();
-        fs::copy(self.payload.exe_path(), &uninstaller_path).map_err(|source| EngineError::CopyUninstaller {
-            path: uninstaller_path.clone(),
-            source,
+        fs::copy(self.payload.exe_path(), &uninstaller_path).map_err(|source| {
+            EngineError::CopyUninstaller {
+                path: uninstaller_path.clone(),
+                source,
+            }
         })?;
         if !uninstaller_existed {
             rollback.record_created_file(uninstaller_path.clone());
@@ -592,7 +615,11 @@ impl InstallerEngine {
         Ok(())
     }
 
-    fn uninstall_from_state(&self, state: &InstallState, current_exe: &Path) -> Result<(), EngineError> {
+    fn uninstall_from_state(
+        &self,
+        state: &InstallState,
+        current_exe: &Path,
+    ) -> Result<(), EngineError> {
         let install_dir = PathBuf::from(&state.install_dir);
         for shortcut in &state.shortcuts {
             let _ = fs::remove_file(shortcut);
@@ -633,22 +660,32 @@ impl InstallerEngine {
             for arg in parse_windows_args(&resolved_args)? {
                 command.arg(arg);
             }
-            command.spawn().map_err(|source| EngineError::LaunchCommand {
-                program: program.display().to_string(),
-                source,
-            })?;
+            command
+                .spawn()
+                .map_err(|source| EngineError::LaunchCommand {
+                    program: program.display().to_string(),
+                    source,
+                })?;
         }
 
         Ok(())
     }
 
     #[cfg(not(windows))]
-    fn apply_registry(&self, _context: &InstallContext, _rollback: &mut InstallRollback) -> Result<Vec<InstalledRegistryValue>, EngineError> {
+    fn apply_registry(
+        &self,
+        _context: &InstallContext,
+        _rollback: &mut InstallRollback,
+    ) -> Result<Vec<InstalledRegistryValue>, EngineError> {
         Ok(Vec::new())
     }
 
     #[cfg(windows)]
-    fn apply_registry(&self, context: &InstallContext, rollback: &mut InstallRollback) -> Result<Vec<InstalledRegistryValue>, EngineError> {
+    fn apply_registry(
+        &self,
+        context: &InstallContext,
+        rollback: &mut InstallRollback,
+    ) -> Result<Vec<InstalledRegistryValue>, EngineError> {
         use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
         use winreg::RegKey;
 
@@ -663,11 +700,13 @@ impl InstallerEngine {
                 _ => return Err(EngineError::UnsupportedRegistryHive(entry.key.clone())),
             };
 
-            let (target_key, _) = root.create_subkey(subkey).map_err(|source| EngineError::RegistryIo {
-                key: entry.key.clone(),
-                value_name: String::from("<create_subkey>"),
-                source,
-            })?;
+            let (target_key, _) =
+                root.create_subkey(subkey)
+                    .map_err(|source| EngineError::RegistryIo {
+                        key: entry.key.clone(),
+                        value_name: String::from("<create_subkey>"),
+                        source,
+                    })?;
 
             for value in &entry.values {
                 let previous = match target_key.get_raw_value(&value.name) {
@@ -699,26 +738,34 @@ impl InstallerEngine {
                             source,
                         })?,
                     setupweaver_common::RegistryValueType::Dword => {
-                        let parsed: u32 = resolve_arg_tokens(&value.data, context).parse().map_err(|_| EngineError::ResolvePath {
-                            template: value.data.clone(),
-                            reason: String::from("DWORD data must parse as u32"),
-                        })?;
-                        target_key.set_value(&value.name, &parsed).map_err(|source| EngineError::RegistryIo {
-                            key: entry.key.clone(),
-                            value_name: value.name.clone(),
-                            source,
-                        })?;
+                        let parsed: u32 = resolve_arg_tokens(&value.data, context)
+                            .parse()
+                            .map_err(|_| EngineError::ResolvePath {
+                                template: value.data.clone(),
+                                reason: String::from("DWORD data must parse as u32"),
+                            })?;
+                        target_key
+                            .set_value(&value.name, &parsed)
+                            .map_err(|source| EngineError::RegistryIo {
+                                key: entry.key.clone(),
+                                value_name: value.name.clone(),
+                                source,
+                            })?;
                     }
                     setupweaver_common::RegistryValueType::Qword => {
-                        let parsed: u64 = resolve_arg_tokens(&value.data, context).parse().map_err(|_| EngineError::ResolvePath {
-                            template: value.data.clone(),
-                            reason: String::from("QWORD data must parse as u64"),
-                        })?;
-                        target_key.set_value(&value.name, &parsed).map_err(|source| EngineError::RegistryIo {
-                            key: entry.key.clone(),
-                            value_name: value.name.clone(),
-                            source,
-                        })?;
+                        let parsed: u64 = resolve_arg_tokens(&value.data, context)
+                            .parse()
+                            .map_err(|_| EngineError::ResolvePath {
+                                template: value.data.clone(),
+                                reason: String::from("QWORD data must parse as u64"),
+                            })?;
+                        target_key
+                            .set_value(&value.name, &parsed)
+                            .map_err(|source| EngineError::RegistryIo {
+                                key: entry.key.clone(),
+                                value_name: value.name.clone(),
+                                source,
+                            })?;
                     }
                 }
                 rollback.record_registry_change(change.clone());
@@ -730,12 +777,20 @@ impl InstallerEngine {
     }
 
     #[cfg(not(windows))]
-    fn update_path(&self, _context: &InstallContext, _rollback: &mut InstallRollback) -> Result<Option<PathEntryState>, EngineError> {
+    fn update_path(
+        &self,
+        _context: &InstallContext,
+        _rollback: &mut InstallRollback,
+    ) -> Result<Option<PathEntryState>, EngineError> {
         Ok(None)
     }
 
     #[cfg(windows)]
-    fn update_path(&self, context: &InstallContext, rollback: &mut InstallRollback) -> Result<Option<PathEntryState>, EngineError> {
+    fn update_path(
+        &self,
+        context: &InstallContext,
+        rollback: &mut InstallRollback,
+    ) -> Result<Option<PathEntryState>, EngineError> {
         use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, REG_EXPAND_SZ};
         use winreg::{RegKey, RegValue};
 
@@ -745,20 +800,29 @@ impl InstallerEngine {
 
         let (key_name, root, subkey, system) = if self.manifest.config.install.require_admin {
             (
-                String::from("HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment"),
+                String::from(
+                    "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+                ),
                 RegKey::predef(HKEY_LOCAL_MACHINE),
                 "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
                 true,
             )
         } else {
-            (String::from("HKCU\\Environment"), RegKey::predef(HKEY_CURRENT_USER), "Environment", false)
+            (
+                String::from("HKCU\\Environment"),
+                RegKey::predef(HKEY_CURRENT_USER),
+                "Environment",
+                false,
+            )
         };
 
-        let (env_key, _) = root.create_subkey(subkey).map_err(|source| EngineError::RegistryIo {
-            key: key_name.clone(),
-            value_name: String::from("Path"),
-            source,
-        })?;
+        let (env_key, _) =
+            root.create_subkey(subkey)
+                .map_err(|source| EngineError::RegistryIo {
+                    key: key_name.clone(),
+                    value_name: String::from("Path"),
+                    source,
+                })?;
 
         let current = match env_key.get_value::<String, _>("Path") {
             Ok(value) => value,
@@ -782,11 +846,13 @@ impl InstallerEngine {
             bytes: encode_utf16_nul(&updated),
             vtype: REG_EXPAND_SZ,
         };
-        env_key.set_raw_value("Path", &value).map_err(|source| EngineError::RegistryIo {
-            key: key_name.clone(),
-            value_name: String::from("Path"),
-            source,
-        })?;
+        env_key
+            .set_raw_value("Path", &value)
+            .map_err(|source| EngineError::RegistryIo {
+                key: key_name.clone(),
+                value_name: String::from("Path"),
+                source,
+            })?;
         rollback.record_path_restore(PathRestore {
             key: key_name,
             previous: current,
@@ -800,16 +866,26 @@ impl InstallerEngine {
     }
 
     #[cfg(not(windows))]
-    fn create_shortcuts(&self, _context: &InstallContext, _rollback: &mut InstallRollback) -> Result<Vec<PathBuf>, EngineError> {
+    fn create_shortcuts(
+        &self,
+        _context: &InstallContext,
+        _rollback: &mut InstallRollback,
+    ) -> Result<Vec<PathBuf>, EngineError> {
         Ok(Vec::new())
     }
 
     #[cfg(windows)]
-    fn create_shortcuts(&self, context: &InstallContext, rollback: &mut InstallRollback) -> Result<Vec<PathBuf>, EngineError> {
+    fn create_shortcuts(
+        &self,
+        context: &InstallContext,
+        rollback: &mut InstallRollback,
+    ) -> Result<Vec<PathBuf>, EngineError> {
         let mut shortcuts = Vec::new();
         let mut created_paths = Vec::new();
 
-        if self.manifest.config.shortcuts.is_empty() && self.manifest.config.install.create_desktop_shortcut {
+        if self.manifest.config.shortcuts.is_empty()
+            && self.manifest.config.install.create_desktop_shortcut
+        {
             shortcuts.push(ShortcutSpec {
                 name: self.manifest.config.app.name.clone(),
                 target: format!("{{install_dir}}\\{}.exe", self.manifest.config.app.name),
@@ -946,7 +1022,10 @@ struct InstallContext {
 }
 
 impl InstallContext {
-    fn for_manifest(manifest: &PackagedInstaller, install_dir_override: Option<&Path>) -> Result<Self, EngineError> {
+    fn for_manifest(
+        manifest: &PackagedInstaller,
+        install_dir_override: Option<&Path>,
+    ) -> Result<Self, EngineError> {
         let program_files = std::env::var_os("ProgramFiles")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"));
@@ -993,7 +1072,10 @@ fn resolve_template(template: &str, context: &InstallContext) -> Result<PathBuf,
 
 fn resolve_arg_tokens(input: &str, context: &InstallContext) -> String {
     input
-        .replace("{ProgramFiles}", &context.program_files.display().to_string())
+        .replace(
+            "{ProgramFiles}",
+            &context.program_files.display().to_string(),
+        )
         .replace("{AppData}", &context.app_data.display().to_string())
         .replace("{Desktop}", &context.desktop.display().to_string())
         .replace("{Temp}", &context.temp.display().to_string())
@@ -1022,15 +1104,29 @@ fn load_install_state(install_dir: &Path) -> Result<InstallState, EngineError> {
     toml::from_str(&content).map_err(|source| EngineError::ParseState { path, source })
 }
 
-fn resolve_uninstall_dir(install_dir_override: Option<&Path>, current_exe: &Path, fallback: &Path) -> Result<PathBuf, EngineError> {
+fn resolve_uninstall_dir(
+    install_dir_override: Option<&Path>,
+    current_exe: &Path,
+    fallback: &Path,
+) -> Result<PathBuf, EngineError> {
     if let Some(path) = install_dir_override {
         return Ok(path.to_path_buf());
     }
 
-    if current_exe.file_name().is_some_and(|name| name == UNINSTALLER_FILE_NAME)
-        && current_exe.parent().is_some_and(|parent| parent.file_name().is_some_and(|name| name == INSTALL_STATE_DIR_NAME))
+    if current_exe
+        .file_name()
+        .is_some_and(|name| name == UNINSTALLER_FILE_NAME)
+        && current_exe.parent().is_some_and(|parent| {
+            parent
+                .file_name()
+                .is_some_and(|name| name == INSTALL_STATE_DIR_NAME)
+        })
     {
-        return Ok(current_exe.parent().and_then(Path::parent).unwrap_or(fallback).to_path_buf());
+        return Ok(current_exe
+            .parent()
+            .and_then(Path::parent)
+            .unwrap_or(fallback)
+            .to_path_buf());
     }
 
     let fallback = fallback.to_path_buf();
@@ -1076,7 +1172,10 @@ fn write_all_at(file: &File, offset: u64, mut bytes: &[u8]) -> std::io::Result<(
     while !bytes.is_empty() {
         let written = file.seek_write(bytes, position)?;
         if written == 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "failed to write file chunk"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "failed to write file chunk",
+            ));
         }
         bytes = &bytes[written..];
         position += written as u64;
@@ -1092,7 +1191,10 @@ fn write_all_at(file: &File, offset: u64, mut bytes: &[u8]) -> std::io::Result<(
     while !bytes.is_empty() {
         let written = file.write_at(bytes, position)?;
         if written == 0 {
-            return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "failed to write file chunk"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "failed to write file chunk",
+            ));
         }
         bytes = &bytes[written..];
         position += written as u64;
@@ -1267,11 +1369,13 @@ fn restore_registry_values(changes: &[InstalledRegistryValue]) -> Result<(), Eng
             _ => return Err(EngineError::UnsupportedRegistryHive(change.key.clone())),
         };
 
-        let (target_key, _) = root.create_subkey(subkey).map_err(|source| EngineError::RegistryIo {
-            key: change.key.clone(),
-            value_name: String::from("<create_subkey>"),
-            source,
-        })?;
+        let (target_key, _) =
+            root.create_subkey(subkey)
+                .map_err(|source| EngineError::RegistryIo {
+                    key: change.key.clone(),
+                    value_name: String::from("<create_subkey>"),
+                    source,
+                })?;
 
         match &change.previous {
             Some(previous) => target_key
@@ -1319,11 +1423,13 @@ fn restore_path_value(restore: Option<&PathRestore>) -> Result<(), EngineError> 
         "HKLM" => RegKey::predef(HKEY_LOCAL_MACHINE),
         _ => return Err(EngineError::UnsupportedRegistryHive(restore.key.clone())),
     };
-    let (target_key, _) = root.create_subkey(subkey).map_err(|source| EngineError::RegistryIo {
-        key: restore.key.clone(),
-        value_name: String::from("Path"),
-        source,
-    })?;
+    let (target_key, _) = root
+        .create_subkey(subkey)
+        .map_err(|source| EngineError::RegistryIo {
+            key: restore.key.clone(),
+            value_name: String::from("Path"),
+            source,
+        })?;
     target_key
         .set_raw_value(
             "Path",
@@ -1361,14 +1467,20 @@ fn restore_path_entry(path_entry: Option<&PathEntryState>) -> Result<(), EngineE
             "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
         )
     } else {
-        (String::from("HKCU\\Environment"), RegKey::predef(HKEY_CURRENT_USER), "Environment")
+        (
+            String::from("HKCU\\Environment"),
+            RegKey::predef(HKEY_CURRENT_USER),
+            "Environment",
+        )
     };
 
-    let (env_key, _) = root.create_subkey(subkey).map_err(|source| EngineError::RegistryIo {
-        key: key_name.clone(),
-        value_name: String::from("Path"),
-        source,
-    })?;
+    let (env_key, _) = root
+        .create_subkey(subkey)
+        .map_err(|source| EngineError::RegistryIo {
+            key: key_name.clone(),
+            value_name: String::from("Path"),
+            source,
+        })?;
     let current = match env_key.get_value::<String, _>("Path") {
         Ok(value) => value,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -1402,12 +1514,20 @@ fn restore_path_entry(path_entry: Option<&PathEntryState>) -> Result<(), EngineE
 }
 
 #[cfg(not(windows))]
-fn schedule_self_delete(_current_exe: &Path, _state_path: &Path, _state_dir: &Path) -> Result<(), EngineError> {
+fn schedule_self_delete(
+    _current_exe: &Path,
+    _state_path: &Path,
+    _state_dir: &Path,
+) -> Result<(), EngineError> {
     Ok(())
 }
 
 #[cfg(windows)]
-fn schedule_self_delete(current_exe: &Path, state_path: &Path, state_dir: &Path) -> Result<(), EngineError> {
+fn schedule_self_delete(
+    current_exe: &Path,
+    state_path: &Path,
+    state_dir: &Path,
+) -> Result<(), EngineError> {
     let command = format!(
         "ping 127.0.0.1 -n 2 > nul & del /f /q \"{}\" & del /f /q \"{}\" & rmdir /s /q \"{}\"",
         state_path.display(),
@@ -1536,7 +1656,10 @@ fn broadcast_environment_change() -> Result<(), EngineError> {
     };
 
     let mut result = 0usize;
-    let mut parameter = "Environment".encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
+    let mut parameter = "Environment"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
 
     // SAFETY: HWND_BROADCAST and WM_SETTINGCHANGE are valid system constants.
     // `parameter` is NUL-terminated and kept alive for the duration of the call.
@@ -1553,7 +1676,9 @@ fn broadcast_environment_change() -> Result<(), EngineError> {
     };
 
     if status == 0 {
-        return Err(EngineError::BroadcastEnvironmentChange(std::io::Error::last_os_error()));
+        return Err(EngineError::BroadcastEnvironmentChange(
+            std::io::Error::last_os_error(),
+        ));
     }
 
     Ok(())
@@ -1565,7 +1690,10 @@ mod tests {
 
     use setupweaver_common::{PackagedChunk, PackagedFile};
 
-    use super::{append_path_entry, chunk_output_offsets, missing_parent_dirs, normalize_env_path, parse_windows_args};
+    use super::{
+        append_path_entry, chunk_output_offsets, missing_parent_dirs, normalize_env_path,
+        parse_windows_args,
+    };
 
     #[test]
     fn appends_missing_path_entry() {

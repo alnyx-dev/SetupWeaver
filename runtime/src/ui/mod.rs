@@ -17,7 +17,10 @@ const SCREEN_ERROR: i32 = 4;
 
 pub fn run_installer(engine: &InstallerEngine, install_dir_override: Option<&Path>) -> Result<()> {
     let manifest = engine.manifest().clone();
-    let has_license = manifest.license_text.as_deref().is_some_and(|text| !text.trim().is_empty());
+    let has_license = manifest
+        .license_text
+        .as_deref()
+        .is_some_and(|text| !text.trim().is_empty());
     let install_dir = match install_dir_override {
         Some(path) => path.to_path_buf(),
         None => engine.default_install_dir()?,
@@ -53,7 +56,9 @@ pub fn run_installer(engine: &InstallerEngine, install_dir_override: Option<&Pat
     window.set_progress_value(0.0);
     window.set_install_running(false);
     window.set_has_license(has_license);
-    window.set_accent_color(parse_accent_color(manifest.config.ui.accent_color.as_deref()));
+    window.set_accent_color(parse_accent_color(
+        manifest.config.ui.accent_color.as_deref(),
+    ));
 
     let state = Arc::new(Mutex::new(UiState {
         has_license,
@@ -134,7 +139,9 @@ pub fn run_installer(engine: &InstallerEngine, install_dir_override: Option<&Pat
                         window.set_detail_text("Read the license and continue when ready.".into());
                     }
                 }
-                SCREEN_WELCOME | SCREEN_LICENSE => start_install(window_weak.clone(), state.clone()),
+                SCREEN_WELCOME | SCREEN_LICENSE => {
+                    start_install(window_weak.clone(), state.clone())
+                }
                 SCREEN_FINISH | SCREEN_ERROR => {
                     if let Some(window) = window_weak.upgrade() {
                         let _ = window.hide();
@@ -266,7 +273,11 @@ fn parse_accent_color(value: Option<&str>) -> slint::Color {
     let Ok(rgb) = u32::from_str_radix(value, 16) else {
         return fallback;
     };
-    slint::Color::from_rgb_u8(((rgb >> 16) & 0xff) as u8, ((rgb >> 8) & 0xff) as u8, (rgb & 0xff) as u8)
+    slint::Color::from_rgb_u8(
+        ((rgb >> 16) & 0xff) as u8,
+        ((rgb >> 8) & 0xff) as u8,
+        (rgb & 0xff) as u8,
+    )
 }
 
 fn human_size(bytes: u64) -> String {

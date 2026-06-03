@@ -34,14 +34,18 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
-    slint::BackendSelector::new().backend_name("winit".into()).select()?;
+    slint::BackendSelector::new()
+        .backend_name("winit".into())
+        .select()?;
     ui::run_installer(&engine, cli.install_dir.as_deref())
 }
 
 fn parse_cli() -> Result<Cli> {
     let mut cli = Cli::default();
     let mut args = std::env::args_os();
-    let program = args.next().unwrap_or_else(|| OsString::from("setupweaver-runtime"));
+    let program = args
+        .next()
+        .unwrap_or_else(|| OsString::from("setupweaver-runtime"));
 
     while let Some(arg) = args.next() {
         match arg.to_string_lossy().as_ref() {
@@ -49,7 +53,9 @@ fn parse_cli() -> Result<Cli> {
             "--silent" => cli.silent = true,
             "--uninstall" => cli.uninstall = true,
             "--install-dir" => {
-                let value = args.next().ok_or_else(|| anyhow::anyhow!("--install-dir requires a value"))?;
+                let value = args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--install-dir requires a value"))?;
                 cli.install_dir = Some(PathBuf::from(value));
             }
             "--help" | "-h" => {

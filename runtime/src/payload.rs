@@ -4,7 +4,9 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use memmap2::Mmap;
-use setupweaver_common::{PackagedChunk, PackagedFile, PackagedInstaller, PAYLOAD_HEADER_SIZE, PAYLOAD_MAGIC};
+use setupweaver_common::{
+    PackagedChunk, PackagedFile, PackagedInstaller, PAYLOAD_HEADER_SIZE, PAYLOAD_MAGIC,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -30,11 +32,17 @@ pub enum PayloadError {
     #[error("payload magic is invalid")]
     InvalidMagic,
     #[error("manifest length {manifest_len} exceeds payload size {payload_len}")]
-    InvalidManifestLength { manifest_len: u64, payload_len: usize },
+    InvalidManifestLength {
+        manifest_len: u64,
+        payload_len: usize,
+    },
     #[error("failed to parse packaged manifest: {0}")]
     ManifestParse(#[from] toml::de::Error),
     #[error("payload slice for {destination} chunk {chunk_index} is outside the embedded payload")]
-    ChunkOutOfBounds { destination: String, chunk_index: usize },
+    ChunkOutOfBounds {
+        destination: String,
+        chunk_index: usize,
+    },
 }
 
 pub struct EmbeddedPayload {
@@ -70,7 +78,11 @@ impl EmbeddedPayload {
         }
 
         let offset_index = mmap.len() - 8;
-        let offset = u64::from_le_bytes(mmap[offset_index..].try_into().expect("slice length is fixed"));
+        let offset = u64::from_le_bytes(
+            mmap[offset_index..]
+                .try_into()
+                .expect("slice length is fixed"),
+        );
         if offset as usize > offset_index {
             return Err(PayloadError::InvalidOffset {
                 offset,
@@ -91,7 +103,10 @@ impl EmbeddedPayload {
 
     pub fn read_manifest(&self) -> Result<PackagedInstaller, PayloadError> {
         let manifest_range = self.manifest_range()?;
-        Ok(toml::from_str(std::str::from_utf8(&self.payload_bytes()[manifest_range]).map_err(|_| PayloadError::InvalidHeader)?)?)
+        Ok(toml::from_str(
+            std::str::from_utf8(&self.payload_bytes()[manifest_range])
+                .map_err(|_| PayloadError::InvalidHeader)?,
+        )?)
     }
 
     pub fn payload_chunk_bytes(
