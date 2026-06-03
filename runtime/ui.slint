@@ -1,0 +1,443 @@
+// runtime/ui.slint
+import { Button, LineEdit, TextEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+component StepIndicator inherits Rectangle {
+    in property <int> step_number;
+    in property <string> label;
+    in property <bool> active;
+    in property <bool> done;
+    in property <color> accent;
+
+    height: 36px;
+
+    HorizontalBox {
+        spacing: 10px;
+        alignment: start;
+
+        Rectangle {
+            width: 24px;
+            height: 24px;
+            border-radius: 12px;
+            background: root.done ? #107c10 : root.active ? root.accent : #e0e0e0;
+
+            Text {
+                text: root.done ? "\u{2713}" : "\{root.step_number}";
+                color: root.done || root.active ? white : #616161;
+                font-size: 12px;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+
+        Text {
+            text: root.label;
+            color: root.active ? #1e1e1e : root.done ? #107c10 : #9e9e9e;
+            font-size: 13px;
+            font-weight: root.active ? 600 : 400;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component InstallerWindow inherits Window {
+    in-out property <string> app_name;
+    in-out property <string> version_text;
+    in-out property <string> publisher_text;
+    in-out property <string> welcome_text;
+    in-out property <string> license_text;
+    in-out property <string> install_dir;
+    in-out property <string> status_text;
+    in-out property <string> detail_text;
+    in-out property <string> error_text;
+    in-out property <color> accent_color: #0078d4;
+    in-out property <bool> has_license: false;
+    in-out property <bool> install_running: false;
+    in-out property <int> current_screen: 0;
+    in-out property <float> progress_value: 0;
+
+    callback back();
+    callback next();
+    callback cancel();
+    callback finish();
+
+    title: app_name + " Setup";
+    preferred-width: 820px;
+    preferred-height: 520px;
+    min-width: 780px;
+    min-height: 480px;
+    background: #f3f3f3;
+
+    HorizontalBox {
+        padding: 0px;
+        spacing: 0px;
+
+        // Sidebar
+        Rectangle {
+            width: 220px;
+            background: #ffffff;
+
+            VerticalBox {
+                padding: 24px;
+                spacing: 8px;
+
+                // App header
+                VerticalBox {
+                    spacing: 4px;
+
+                    Text {
+                        text: root.app_name;
+                        color: #1e1e1e;
+                        font-size: 16px;
+                        font-weight: 600;
+                    }
+
+                    Text {
+                        text: root.version_text;
+                        color: #616161;
+                        font-size: 12px;
+                    }
+
+                    if root.publisher_text != "" : Text {
+                        text: root.publisher_text;
+                        color: #9e9e9e;
+                        font-size: 12px;
+                    }
+                }
+
+                Rectangle { height: 16px; }
+
+                // Step list
+                Rectangle { height: 1px; background: #e0e0e0; }
+
+                Rectangle { height: 8px; }
+
+                StepIndicator {
+                    step_number: 1;
+                    label: "Welcome";
+                    active: root.current_screen == 0;
+                    done: root.current_screen > 0;
+                    accent: root.accent_color;
+                }
+
+                StepIndicator {
+                    step_number: 2;
+                    label: root.has_license ? "License" : "Install";
+                    active: root.current_screen == 1;
+                    done: root.current_screen > 1 || (!root.has_license && root.current_screen > 0);
+                    accent: root.accent_color;
+                }
+
+                StepIndicator {
+                    step_number: root.has_license ? 3 : 2;
+                    label: "Install";
+                    active: root.current_screen == 2 && root.has_license;
+                    done: root.current_screen > 2;
+                    accent: root.accent_color;
+                }
+
+                StepIndicator {
+                    step_number: root.has_license ? 4 : 3;
+                    label: "Finish";
+                    active: root.current_screen == 3 || root.current_screen == 4;
+                    done: root.current_screen == 3;
+                    accent: root.accent_color;
+                }
+
+                Rectangle { vertical-stretch: 1; }
+
+                Text {
+                    text: "Powered by SetupWeaver";
+                    color: #c0c0c0;
+                    font-size: 11px;
+                }
+            }
+        }
+
+        // Main content
+        Rectangle {
+            horizontal-stretch: 1;
+            background: #f3f3f3;
+
+            VerticalBox {
+                padding: 28px;
+                spacing: 0px;
+
+                // Status header
+                Rectangle {
+                    height: 60px;
+                    background: #f3f3f3;
+
+                    VerticalBox {
+                        spacing: 4px;
+                        padding: 0px;
+
+                        Text {
+                            text: root.status_text;
+                            color: #1e1e1e;
+                            font-size: 24px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: root.detail_text;
+                            color: #616161;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                            max-height: 20px;
+                        }
+                    }
+                }
+
+                Rectangle { height: 20px; }
+
+                // Content card
+                if root.current_screen == 0 : Rectangle {
+                    vertical-stretch: 1;
+                    background: #ffffff;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    border-radius: 4px;
+
+                    VerticalBox {
+                        padding: 28px;
+                        spacing: 18px;
+
+                        Text {
+                            text: root.welcome_text;
+                            color: #1e1e1e;
+                            font-size: 20px;
+                            font-weight: 600;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle { height: 1px; background: #e0e0e0; }
+
+                        Text {
+                            text: "Install location";
+                            color: #1e1e1e;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        LineEdit {
+                            text <=> root.install_dir;
+                            enabled: !root.install_running;
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+
+                        Text {
+                            text: "Click Install to begin, or change the install location above.";
+                            color: #9e9e9e;
+                            font-size: 13px;
+                        }
+                    }
+                }
+
+                if root.current_screen == 1 : Rectangle {
+                    vertical-stretch: 1;
+                    background: #ffffff;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    border-radius: 4px;
+
+                    VerticalBox {
+                        padding: 28px;
+                        spacing: 14px;
+
+                        Text {
+                            text: "License Agreement";
+                            color: #1e1e1e;
+                            font-size: 20px;
+                            font-weight: 600;
+                        }
+
+                        Rectangle { height: 1px; background: #e0e0e0; }
+
+                        TextEdit {
+                            text: root.license_text;
+                            read-only: true;
+                            wrap: word-wrap;
+                            vertical-stretch: 1;
+                        }
+                    }
+                }
+
+                if root.current_screen == 2 : Rectangle {
+                    vertical-stretch: 1;
+                    background: #ffffff;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    border-radius: 4px;
+
+                    VerticalBox {
+                        padding: 28px;
+                        spacing: 18px;
+
+                        Text {
+                            text: "Installing " + root.app_name;
+                            color: #1e1e1e;
+                            font-size: 20px;
+                            font-weight: 600;
+                        }
+
+                        Rectangle { height: 1px; background: #e0e0e0; }
+
+                        // Progress bar
+                        Rectangle {
+                            height: 8px;
+                            border-radius: 4px;
+                            background: #e0e0e0;
+
+                            Rectangle {
+                                width: parent.width * root.progress_value;
+                                height: parent.height;
+                                border-radius: 4px;
+                                background: root.accent_color;
+                            }
+                        }
+
+                        Text {
+                            text: root.detail_text;
+                            color: #616161;
+                            font-size: 13px;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+
+                if root.current_screen == 3 : Rectangle {
+                    vertical-stretch: 1;
+                    background: #ffffff;
+                    border-width: 1px;
+                    border-color: #e0e0e0;
+                    border-radius: 4px;
+
+                    VerticalBox {
+                        padding: 28px;
+                        spacing: 18px;
+
+                        Rectangle {
+                            width: 48px;
+                            height: 48px;
+                            border-radius: 24px;
+                            background: #107c10;
+
+                            Text {
+                                text: "\u{2713}";
+                                color: white;
+                                font-size: 22px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                width: parent.width;
+                                height: parent.height;
+                            }
+                        }
+
+                        Text {
+                            text: root.app_name + " has been installed successfully.";
+                            color: #1e1e1e;
+                            font-size: 20px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: "You can close this window.";
+                            color: #616161;
+                            font-size: 14px;
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+                    }
+                }
+
+                if root.current_screen == 4 : Rectangle {
+                    vertical-stretch: 1;
+                    background: #fdf0f0;
+                    border-width: 1px;
+                    border-color: #d13438;
+                    border-radius: 4px;
+
+                    VerticalBox {
+                        padding: 28px;
+                        spacing: 18px;
+
+                        Rectangle {
+                            width: 48px;
+                            height: 48px;
+                            border-radius: 24px;
+                            background: #d13438;
+
+                            Text {
+                                text: "\u{2717}";
+                                color: white;
+                                font-size: 22px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                width: parent.width;
+                                height: parent.height;
+                            }
+                        }
+
+                        Text {
+                            text: "Installation failed";
+                            color: #1e1e1e;
+                            font-size: 20px;
+                            font-weight: 600;
+                        }
+
+                        Rectangle { height: 1px; background: #d13438; }
+
+                        TextEdit {
+                            text: root.error_text;
+                            read-only: true;
+                            wrap: word-wrap;
+                            vertical-stretch: 1;
+                        }
+                    }
+                }
+
+                Rectangle { height: 20px; }
+
+                // Bottom buttons
+                Rectangle {
+                    height: 44px;
+                    background: #f3f3f3;
+
+                    HorizontalBox {
+                        spacing: 10px;
+                        alignment: end;
+
+                        if !root.install_running && (root.current_screen == 0 || root.current_screen == 1) : Button {
+                            text: root.current_screen == 1 ? "Back" : "Cancel";
+                            clicked => {
+                                if root.current_screen == 1 {
+                                    root.back();
+                                } else {
+                                    root.cancel();
+                                }
+                            }
+                        }
+
+                        if !root.install_running && (root.current_screen == 0 || root.current_screen == 1) : Button {
+                            text: root.current_screen == 0 && root.has_license ? "Next" : "Install";
+                            clicked => { root.next(); }
+                        }
+
+                        if !root.install_running && (root.current_screen == 3 || root.current_screen == 4) : Button {
+                            text: "Close";
+                            clicked => { root.finish(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
