@@ -6,7 +6,7 @@
 <title>SetupWeaver — Blazing-fast Windows Installer Builder</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Fira+Mono:wght@400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Unbounded:wght@400;500;600;700;800;900&family=Fira+Mono:wght@400;500&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <style>
   :root {
@@ -193,7 +193,7 @@
   @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 
   .hero-title {
-    font-family: var(--font-display);
+    font-family: var(--font-outline);
     font-size: clamp(3.5rem, 8vw, 7rem);
     font-weight: 800;
     line-height: 0.9;
@@ -203,12 +203,7 @@
     animation: fadeUp 0.8s 0.15s ease forwards;
     opacity: 0;
   }
-  .hero-title .line-accent {
-    color: rgba(244,242,237,0.18);
-    font-family: var(--font-display);
-    font-weight: 800;
-    letter-spacing: -0.04em;
-  }
+
 
   .hero-desc {
     font-size: 1.1rem;
@@ -492,7 +487,7 @@
   }
   .feature-card:hover { border-color: var(--gray-3); background: #161616; }
   .feature-card:hover::before { opacity: 1; }
-  .feature-card:nth-child(1) { grid-column: span 2; }
+  .feature-card:nth-child(1) { grid-column: span 1; }
 
   .feature-icon {
     width: 28px; height: 28px;
@@ -705,7 +700,7 @@
     background-size: 40px 40px;
   }
   .cta-title {
-    font-family: var(--font-display);
+    font-family: var(--font-outline);
     font-size: clamp(2.5rem, 5vw, 5rem);
     font-weight: 800;
     letter-spacing: -0.04em;
@@ -713,10 +708,7 @@
     margin-bottom: 1.5rem;
     position: relative;
   }
-  .cta-title .outline {
-    color: transparent;
-    -webkit-text-stroke: 1px rgba(244,242,237,0.3);
-  }
+
   .cta-desc {
     color: var(--gray-5);
     font-size: 1rem;
@@ -846,7 +838,7 @@
     .cursor, .cursor-ring { display: none; }
     .binary-blocks { height: 52px; }
     .features-grid { grid-template-columns: repeat(2, 1fr); }
-    .feature-card:nth-child(1) { grid-column: span 2; }
+    .feature-card:nth-child(1) { grid-column: span 1; }
   }
 
   @media (max-width: 600px) {
@@ -897,7 +889,7 @@
 
   <h1 class="hero-title">
     Build installers<br>
-    <span class="line-accent">blazing-fast</span>
+    blazing-fast
   </h1>
 
   <p class="hero-desc">
@@ -1202,7 +1194,7 @@
   <div class="cta-lines"></div>
   <h2 class="cta-title reveal">
     Start weaving<br>
-    <span class="outline">installers</span>
+    installers
   </h2>
   <p class="cta-desc reveal reveal-delay-1">
     Open source, zero dependencies, production-ready from day one.
