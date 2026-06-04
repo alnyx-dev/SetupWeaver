@@ -117,6 +117,41 @@ pub fn run_installer(engine: &InstallerEngine, install_dir_override: Option<&Pat
         });
     }
 
+    // New in the redesigned wizard: copy the current error text to the OS
+    // clipboard. Returns the error text (so the callback signature matches
+    // `copy_error() -> string`); on Windows we also pipe it to `clip.exe`.
+    // No new dependencies are needed; setup.exe is Windows-only.
+    {
+        let window_weak = window.as_weak();
+        let state = state.clone();
+        window.on_copy_error(move || -> slint::SharedString {
+            if state.lock().expect("ui state poisoned").install_running {
+                return slint::SharedString::default();
+            }
+            let text = match window_weak.upgrade() {
+                Some(window) => window.get_error_text(),
+                None => return slint::SharedString::default(),
+            };
+            #[cfg(windows)]
+            {
+                use std::io::Write;
+                use std::process::{Command, Stdio};
+                if let Ok(mut child) = Command::new("clip")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        let _ = stdin.write_all(text.as_bytes());
+                    }
+                    let _ = child.wait();
+                }
+            }
+            text
+        });
+    }
+
     {
         let window_weak = window.as_weak();
         let state = state.clone();
