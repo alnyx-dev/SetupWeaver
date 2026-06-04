@@ -1,48 +1,419 @@
 // runtime/ui.slint
-import { Button, LineEdit, TextEdit, VerticalBox, HorizontalBox } from "std-widgets.slint";
+// SetupWeaver runtime installer wizard — redesigned for clarity and warmth.
+//
+// Contract preserved from the previous version (do not break):
+//   - properties: app_name, version_text, publisher_text, welcome_text,
+//                 license_text, install_dir, status_text, detail_text,
+//                 error_text, accent_color, has_license, install_running,
+//                 current_screen (0..4), progress_value
+//   - callbacks:  back(), next(), cancel(), finish()
+//
+// Contract added in this redesign (additive, non-breaking):
+//   - new in-out property: status_glyph  (emoji, set by Rust per InstallPhase)
+//   - new callback:        copy_error()  (returns error_text for clipboard)
 
-component StepIndicator inherits Rectangle {
-    in property <int> step_number;
-    in property <string> label;
-    in property <bool> active;
-    in property <bool> done;
-    in property <color> accent;
+import { LineEdit, TextEdit, CheckBox, VerticalBox, HorizontalBox } from "std-widgets.slint";
 
-    height: 36px;
+// ──────────────────────────────────────────────────────────────────────────────
+// Design tokens
+// ──────────────────────────────────────────────────────────────────────────────
+global Theme {
+    // Surface palette.
+    out property <color> page-bg: #f7f8fa;
+    out property <color> card-bg: #ffffff;
+    out property <color> card-border: #e6e8ec;
+    out property <color> divider: #eceef2;
+
+    // Text palette.
+    out property <color> text-primary: #1f2937;
+    out property <color> text-body: #374151;
+    out property <color> text-secondary: #6b7280;
+    out property <color> text-tertiary: #9ca3af;
+
+    // Feedback palette.
+    out property <color> success: #10b981;
+    out property <color> success-bg: #ecfdf5;
+    out property <color> success-border: #a7f3d0;
+    out property <color> error: #ef4444;
+    out property <color> error-bg: #fef2f2;
+    out property <color> error-border: #fecaca;
+
+    // Disabled / on-accent foregrounds.
+    out property <color> on-accent: #ffffff;
+    out property <color> disabled-bg: #eef0f3;
+    out property <color> disabled-fg: #b6bac1;
+
+    // Spacing scale.
+    out property <length> s-2: 4px;
+    out property <length> s-3: 8px;
+    out property <length> s-4: 12px;
+    out property <length> s-5: 16px;
+    out property <length> s-6: 20px;
+    out property <length> s-7: 24px;
+    out property <length> s-8: 32px;
+    out property <length> s-9: 48px;
+
+    // Radii.
+    out property <length> r-sm: 6px;
+    out property <length> r-md: 10px;
+    out property <length> r-lg: 14px;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Reusable building blocks
+// ──────────────────────────────────────────────────────────────────────────────
+
+// A flat, hairline-bordered "card".
+component Card inherits Rectangle {
+    in property <bool> danger: false;
+    background: danger ? Theme.error-bg : Theme.card-bg;
+    border-color: danger ? Theme.error-border : Theme.card-border;
+    border-width: 1px;
+    border-radius: Theme.r-md;
+}
+
+// A focusable button. We don't use the built-in `Button` widget because
+// Slint's stock `Button` is opaque to our design tokens — we need explicit
+// `background` / `border-radius`.
+//
+// Variants: primary (filled accent), danger (filled error), or default (outlined).
+component Btn inherits Rectangle {
+    in property <string> text: "";
+    in property <bool> enabled: true;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> compact: false;
+    in property <color> accent: #0078d4;
+
+    callback clicked();
+
+    height: compact ? 32px : 40px;
+    min-width: compact ? 80px : 100px;
+    border-radius: compact ? Theme.r-sm : Theme.r-md;
+    border-width: (root.primary || root.danger) ? 0px : 1px;
+    border-color: root.enabled ? Theme.card-border : Theme.divider;
+    background: !root.enabled
+        ? Theme.disabled-bg
+        : root.danger
+            ? Theme.error
+            : root.primary
+                ? root.accent
+                : Theme.card-bg;
+
+    Text {
+        text: root.text;
+        color: !root.enabled
+            ? Theme.disabled-fg
+            : (root.primary || root.danger)
+                ? Theme.on-accent
+                : Theme.text-body;
+        font-size: root.compact ? 13px : 14px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width;
+        height: parent.height;
+    }
+
+    TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Section title at the top of each screen.
+component ScreenTitle inherits Text {
+    color: Theme.text-primary;
+    font-size: 24px;
+    font-weight: 700;
+    wrap: word-wrap;
+}
+
+// Subhead under a ScreenTitle.
+component ScreenSubtitle inherits Text {
+    color: Theme.text-secondary;
+    font-size: 14px;
+    wrap: word-wrap;
+}
+
+// Uppercase label above form fields.
+component FieldLabel inherits Text {
+    color: Theme.text-secondary;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+// A hint line below a form field.
+component FieldHint inherits Text {
+    color: Theme.text-tertiary;
+    font-size: 12px;
+    wrap: word-wrap;
+}
+
+// Pill used for stepper numbers.
+component Pill inherits Rectangle {
+    in property <length> size: 28px;
+    in property <color> fill: #ffffff;
+    in property <color> border-c: Theme.card-border;
+    in property <color> text-c: Theme.text-secondary;
+    in property <string> label: "";
+    in property <string> glyph: "";
+    in property <bool> filled: false;
+
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    background: filled ? fill : Theme.card-bg;
+    border-width: filled ? 0px : 1px;
+    border-color: border-c;
+
+    Text {
+        text: root.glyph != "" ? root.glyph : root.label;
+        color: root.filled ? Theme.on-accent : root.text-c;
+        font-size: root.size * 0.45;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        width: parent.width;
+        height: parent.height;
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Horizontal stepper
+// ──────────────────────────────────────────────────────────────────────────────
+component Stepper inherits Rectangle {
+    in property <int> current_screen: 0;
+    in property <bool> has_license: false;
+    in property <color> accent: #0078d4;
+
+    height: 56px;
 
     HorizontalBox {
-        spacing: 10px;
-        alignment: start;
+        alignment: center;
+        spacing: Theme.s-4;
 
-        Rectangle {
-            width: 24px;
-            height: 24px;
-            border-radius: 12px;
-            background: root.done ? #107c10 : root.active ? root.accent : #e0e0e0;
+        HorizontalBox {
+            spacing: Theme.s-3;
+            alignment: center;
+
+            Pill {
+                size: 28px;
+                glyph: root.current_screen > 0 ? "✓" : "";
+                label: "1";
+                filled: root.current_screen == 0;
+                fill: root.accent;
+                border-c: root.current_screen == 0 ? root.accent : Theme.card-border;
+                text-c: root.current_screen == 0 ? Theme.on-accent : Theme.text-secondary;
+            }
 
             Text {
-                text: root.done ? "\u{2713}" : "\{root.step_number}";
-                color: root.done || root.active ? white : #616161;
-                font-size: 12px;
-                font-weight: 600;
-                horizontal-alignment: center;
+                text: "Welcome";
+                color: root.current_screen == 0 ? Theme.text-primary : Theme.text-secondary;
+                font-size: 13px;
+                font-weight: root.current_screen == 0 ? 600 : 400;
                 vertical-alignment: center;
-                width: parent.width;
-                height: parent.height;
             }
         }
 
-        Text {
-            text: root.label;
-            color: root.active ? #1e1e1e : root.done ? #107c10 : #9e9e9e;
-            font-size: 13px;
-            font-weight: root.active ? 600 : 400;
-            vertical-alignment: center;
+        Rectangle {
+            width: 32px;
+            height: 2px;
+            background: root.current_screen > 0 ? Theme.success : Theme.card-border;
+            border-radius: 1px;
+        }
+
+        HorizontalBox {
+            spacing: Theme.s-3;
+            alignment: center;
+            visible: root.has_license;
+
+            Pill {
+                size: 28px;
+                glyph: root.current_screen > 1 ? "✓" : "";
+                label: "2";
+                filled: root.current_screen == 1;
+                fill: root.accent;
+                border-c: root.current_screen == 1 ? root.accent : Theme.card-border;
+                text-c: root.current_screen == 1 ? Theme.on-accent : Theme.text-secondary;
+            }
+
+            Text {
+                text: "License";
+                color: root.current_screen == 1 ? Theme.text-primary : Theme.text-secondary;
+                font-size: 13px;
+                font-weight: root.current_screen == 1 ? 600 : 400;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle {
+            width: 32px;
+            height: 2px;
+            background: root.current_screen > 1
+                ? Theme.success
+                : (root.current_screen > 0 && !root.has_license)
+                    ? Theme.success
+                    : Theme.card-border;
+            border-radius: 1px;
+            visible: root.has_license;
+        }
+
+        HorizontalBox {
+            spacing: Theme.s-3;
+            alignment: center;
+
+            Pill {
+                size: 28px;
+                glyph: root.current_screen > 2 ? "✓" : "";
+                label: root.has_license ? "3" : "2";
+                filled: root.current_screen == 2;
+                fill: root.accent;
+                border-c: root.current_screen == 2 ? root.accent : Theme.card-border;
+                text-c: root.current_screen == 2 ? Theme.on-accent : Theme.text-secondary;
+            }
+
+            Text {
+                text: "Install";
+                color: root.current_screen == 2 ? Theme.text-primary : Theme.text-secondary;
+                font-size: 13px;
+                font-weight: root.current_screen == 2 ? 600 : 400;
+                vertical-alignment: center;
+            }
+        }
+
+        Rectangle {
+            width: 32px;
+            height: 2px;
+            background: root.current_screen > 2 ? Theme.success : Theme.card-border;
+            border-radius: 1px;
+        }
+
+        HorizontalBox {
+            spacing: Theme.s-3;
+            alignment: center;
+
+            Pill {
+                size: 28px;
+                label: root.has_license ? "4" : "3";
+                filled: root.current_screen == 3;
+                fill: root.accent;
+                border-c: root.current_screen == 3 ? root.accent : Theme.card-border;
+                text-c: root.current_screen == 3 ? Theme.on-accent : Theme.text-secondary;
+            }
+
+            Text {
+                text: "Finish";
+                color: root.current_screen == 3 ? Theme.text-primary : Theme.text-secondary;
+                font-size: 13px;
+                font-weight: root.current_screen == 3 ? 600 : 400;
+                vertical-alignment: center;
+            }
         }
     }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Footer action bar
+// ──────────────────────────────────────────────────────────────────────────────
+component ActionBar inherits Rectangle {
+    in property <int> current_screen: 0;
+    in property <bool> install_running: false;
+    in property <bool> has_license: false;
+    in property <bool> license_accepted: false;
+    in property <color> accent: #0078d4;
+
+    callback back();
+    callback next();
+    callback cancel();
+    callback finish();
+
+    height: 64px;
+    background: Theme.page-bg;
+
+    HorizontalBox {
+        padding-left: Theme.s-8;
+        padding-right: Theme.s-8;
+        spacing: Theme.s-4;
+        alignment: start;
+
+        // Left side: contextual helper text.
+        Text {
+            visible: root.current_screen == 0;
+            text: "You can cancel before installation starts.";
+            color: Theme.text-tertiary;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        Text {
+            visible: root.current_screen == 1 && !root.license_accepted;
+            text: "Please accept the license to continue.";
+            color: Theme.text-tertiary;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        Text {
+            visible: root.current_screen == 2;
+            text: "Working — please wait.";
+            color: Theme.text-tertiary;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+
+        // Spring that pushes the buttons to the right.
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 1px;
+        }
+
+        // Right side: action buttons.
+        HorizontalBox {
+            alignment: end;
+            spacing: Theme.s-3;
+
+            Btn {
+                visible: root.current_screen == 0 || root.current_screen == 1;
+                enabled: !root.install_running;
+                text: root.current_screen == 1 ? "Back" : "Cancel";
+                accent: root.accent;
+                clicked => {
+                    if (root.current_screen == 1) {
+                        root.back();
+                    } else {
+                        root.cancel();
+                    }
+                }
+            }
+
+            Btn {
+                visible: root.current_screen == 0 || root.current_screen == 1;
+                enabled: !root.install_running && (root.current_screen == 0 || root.license_accepted);
+                text: root.current_screen == 0 && root.has_license ? "Next" : "Install";
+                primary: true;
+                accent: root.accent;
+                clicked => { root.next(); }
+            }
+
+            Btn {
+                visible: root.current_screen == 3 || root.current_screen == 4;
+                enabled: !root.install_running;
+                text: "Close";
+                primary: true;
+                accent: root.accent;
+                clicked => { root.finish(); }
+            }
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Main installer window
+// ──────────────────────────────────────────────────────────────────────────────
 export component InstallerWindow inherits Window {
+    // ── Preserved contract (do not rename/remove). ──
     in-out property <string> app_name;
     in-out property <string> version_text;
     in-out property <string> publisher_text;
@@ -63,199 +434,205 @@ export component InstallerWindow inherits Window {
     callback cancel();
     callback finish();
 
-    title: app_name + " Setup";
-    preferred-width: 820px;
-    preferred-height: 520px;
-    min-width: 780px;
-    min-height: 480px;
-    background: #f3f3f3;
+    // ── New (additive) ──
+    in-out property <string> status_glyph: "•";
+    callback copy_error() -> string;
 
-    HorizontalBox {
+    // Local UI state.
+    in-out property <bool> license_accepted: false;
+
+    title: "Install " + root.app_name;
+    preferred-width: 760px;
+    preferred-height: 540px;
+    min-width: 640px;
+    min-height: 460px;
+    background: Theme.page-bg;
+
+    VerticalBox {
         padding: 0px;
         spacing: 0px;
 
-        // Sidebar
+        // ── Header ──
         Rectangle {
-            width: 220px;
-            background: #ffffff;
+            height: 72px;
+            background: Theme.card-bg;
 
-            VerticalBox {
-                padding: 24px;
-                spacing: 8px;
+            HorizontalBox {
+                padding-left: Theme.s-8;
+                padding-right: Theme.s-8;
+                spacing: Theme.s-7;
+                alignment: start;
 
-                // App header
                 VerticalBox {
-                    spacing: 4px;
+                    spacing: 2px;
+                    alignment: center;
 
                     Text {
                         text: root.app_name;
-                        color: #1e1e1e;
+                        color: Theme.text-primary;
                         font-size: 16px;
-                        font-weight: 600;
+                        font-weight: 700;
                     }
 
-                    Text {
-                        text: root.version_text;
-                        color: #616161;
-                        font-size: 12px;
+                    HorizontalBox {
+                        spacing: 6px;
+                        alignment: start;
+
+                        Text {
+                            text: root.version_text;
+                            color: Theme.text-secondary;
+                            font-size: 12px;
+                        }
+
+                        if root.publisher_text != "" : Text {
+                            text: "·";
+                            color: Theme.text-tertiary;
+                            font-size: 12px;
+                        }
+
+                        if root.publisher_text != "" : Text {
+                            text: root.publisher_text;
+                            color: Theme.text-secondary;
+                            font-size: 12px;
+                        }
                     }
-
-                    if root.publisher_text != "" : Text {
-                        text: root.publisher_text;
-                        color: #9e9e9e;
-                        font-size: 12px;
-                    }
                 }
 
-                Rectangle { height: 16px; }
+                // Spring pushes stepper to the right.
+                Rectangle {
+                    horizontal-stretch: 1;
+                    height: 1px;
+                }
 
-                // Step list
-                Rectangle { height: 1px; background: #e0e0e0; }
-
-                Rectangle { height: 8px; }
-
-                StepIndicator {
-                    step_number: 1;
-                    label: "Welcome";
-                    active: root.current_screen == 0;
-                    done: root.current_screen > 0;
+                Stepper {
+                    current_screen: root.current_screen;
+                    has_license: root.has_license;
                     accent: root.accent_color;
-                }
-
-                StepIndicator {
-                    step_number: 2;
-                    label: root.has_license ? "License" : "Install";
-                    active: root.current_screen == 1;
-                    done: root.current_screen > 1 || (!root.has_license && root.current_screen > 0);
-                    accent: root.accent_color;
-                }
-
-                StepIndicator {
-                    step_number: root.has_license ? 3 : 2;
-                    label: "Install";
-                    active: root.current_screen == 2 && root.has_license;
-                    done: root.current_screen > 2;
-                    accent: root.accent_color;
-                }
-
-                StepIndicator {
-                    step_number: root.has_license ? 4 : 3;
-                    label: "Finish";
-                    active: root.current_screen == 3 || root.current_screen == 4;
-                    done: root.current_screen == 3;
-                    accent: root.accent_color;
-                }
-
-                Rectangle { vertical-stretch: 1; }
-
-                Text {
-                    text: "Powered by SetupWeaver";
-                    color: #c0c0c0;
-                    font-size: 11px;
                 }
             }
         }
 
-        // Main content
         Rectangle {
-            horizontal-stretch: 1;
-            background: #f3f3f3;
+            height: 1px;
+            background: Theme.divider;
+        }
+
+        // ── Body ──
+        Rectangle {
+            vertical-stretch: 1;
+            background: Theme.page-bg;
 
             VerticalBox {
-                padding: 28px;
-                spacing: 0px;
+                padding: Theme.s-7;
+                spacing: Theme.s-5;
 
-                // Status header
-                Rectangle {
-                    height: 60px;
-                    background: #f3f3f3;
+                // ─── Welcome ───
+                if root.current_screen == 0 : VerticalBox {
+                    spacing: Theme.s-6;
 
                     VerticalBox {
-                        spacing: 4px;
-                        padding: 0px;
+                        spacing: Theme.s-4;
+                        alignment: center;
 
                         Text {
-                            text: root.status_text;
-                            color: #1e1e1e;
-                            font-size: 24px;
-                            font-weight: 600;
+                            text: "🎯";
+                            font-size: 48px;
+                            horizontal-alignment: center;
                         }
 
-                        Text {
-                            text: root.detail_text;
-                            color: #616161;
-                            font-size: 13px;
-                            wrap: word-wrap;
-                            max-height: 20px;
+                        ScreenTitle {
+                            text: "Install " + root.app_name;
+                            horizontal-alignment: center;
+                        }
+
+                        ScreenSubtitle {
+                            text: "This wizard will guide you through a few quick steps.";
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    Card {
+                        vertical-stretch: 1;
+
+                        VerticalBox {
+                            padding: Theme.s-7;
+                            spacing: Theme.s-6;
+
+                            VerticalBox {
+                                spacing: Theme.s-3;
+
+                                ScreenTitle {
+                                    text: "About this installation";
+                                    font-size: 16px;
+                                }
+
+                                Text {
+                                    text: root.welcome_text;
+                                    color: Theme.text-body;
+                                    font-size: 14px;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.divider;
+                            }
+
+                            VerticalBox {
+                                spacing: Theme.s-3;
+
+                                FieldLabel {
+                                    text: "INSTALL LOCATION";
+                                }
+
+                                LineEdit {
+                                    text <=> root.install_dir;
+                                    enabled: !root.install_running;
+                                    placeholder-text: "C:\\Program Files\\...";
+                                }
+
+                                FieldHint {
+                                    text: "The application will be installed into this folder. You can paste a custom path above.";
+                                }
+                            }
+
+                            if root.has_license : VerticalBox {
+                                spacing: Theme.s-3;
+
+                                Rectangle {
+                                    height: 1px;
+                                    background: Theme.divider;
+                                }
+
+                                CheckBox {
+                                    text: "I have read and accept the license agreement";
+                                    checked <=> root.license_accepted;
+                                    enabled: !root.install_running;
+                                }
+                            }
                         }
                     }
                 }
 
-                Rectangle { height: 20px; }
-
-                // Content card
-                if root.current_screen == 0 : Rectangle {
-                    vertical-stretch: 1;
-                    background: #ffffff;
-                    border-width: 1px;
-                    border-color: #e0e0e0;
-                    border-radius: 4px;
+                // ─── License ───
+                if root.current_screen == 1 : VerticalBox {
+                    spacing: Theme.s-6;
 
                     VerticalBox {
-                        padding: 28px;
-                        spacing: 18px;
+                        spacing: Theme.s-3;
 
-                        Text {
-                            text: root.welcome_text;
-                            color: #1e1e1e;
-                            font-size: 20px;
-                            font-weight: 600;
-                            wrap: word-wrap;
+                        ScreenTitle {
+                            text: "License agreement";
                         }
 
-                        Rectangle { height: 1px; background: #e0e0e0; }
-
-                        Text {
-                            text: "Install location";
-                            color: #1e1e1e;
-                            font-size: 14px;
-                            font-weight: 600;
-                        }
-
-                        LineEdit {
-                            text <=> root.install_dir;
-                            enabled: !root.install_running;
-                        }
-
-                        Rectangle { vertical-stretch: 1; }
-
-                        Text {
-                            text: "Click Install to begin, or change the install location above.";
-                            color: #9e9e9e;
-                            font-size: 13px;
+                        ScreenSubtitle {
+                            text: "Please review the license before continuing.";
                         }
                     }
-                }
 
-                if root.current_screen == 1 : Rectangle {
-                    vertical-stretch: 1;
-                    background: #ffffff;
-                    border-width: 1px;
-                    border-color: #e0e0e0;
-                    border-radius: 4px;
-
-                    VerticalBox {
-                        padding: 28px;
-                        spacing: 14px;
-
-                        Text {
-                            text: "License Agreement";
-                            color: #1e1e1e;
-                            font-size: 20px;
-                            font-weight: 600;
-                        }
-
-                        Rectangle { height: 1px; background: #e0e0e0; }
+                    Card {
+                        vertical-stretch: 1;
 
                         TextEdit {
                             text: root.license_text;
@@ -264,180 +641,346 @@ export component InstallerWindow inherits Window {
                             vertical-stretch: 1;
                         }
                     }
+
+                    CheckBox {
+                        text: "I have read and accept the license agreement";
+                        checked <=> root.license_accepted;
+                    }
                 }
 
-                if root.current_screen == 2 : Rectangle {
-                    vertical-stretch: 1;
-                    background: #ffffff;
-                    border-width: 1px;
-                    border-color: #e0e0e0;
-                    border-radius: 4px;
+                // ─── Install ───
+                if root.current_screen == 2 : VerticalBox {
+                    spacing: Theme.s-6;
 
                     VerticalBox {
-                        padding: 28px;
-                        spacing: 18px;
+                        spacing: Theme.s-4;
+                        alignment: center;
 
                         Text {
+                            text: root.status_glyph == "" ? "📦" : root.status_glyph;
+                            font-size: 40px;
+                            horizontal-alignment: center;
+                        }
+
+                        ScreenTitle {
                             text: "Installing " + root.app_name;
-                            color: #1e1e1e;
-                            font-size: 20px;
-                            font-weight: 600;
+                            horizontal-alignment: center;
                         }
 
-                        Rectangle { height: 1px; background: #e0e0e0; }
-
-                        // Progress bar
+                        // Phase pill.
                         Rectangle {
-                            height: 8px;
-                            border-radius: 4px;
-                            background: #e0e0e0;
+                            height: 24px;
+                            border-radius: 999px;
+                            background: Theme.card-bg;
+                            border-width: 1px;
+                            border-color: Theme.card-border;
 
-                            Rectangle {
-                                width: parent.width * root.progress_value;
-                                height: parent.height;
-                                border-radius: 4px;
-                                background: root.accent_color;
-                            }
-                        }
+                            HorizontalBox {
+                                padding-left: Theme.s-4;
+                                padding-right: Theme.s-4;
+                                alignment: center;
 
-                        Text {
-                            text: root.detail_text;
-                            color: #616161;
-                            font-size: 13px;
-                            wrap: word-wrap;
-                        }
-
-                        Rectangle { vertical-stretch: 1; }
-                    }
-                }
-
-                if root.current_screen == 3 : Rectangle {
-                    vertical-stretch: 1;
-                    background: #ffffff;
-                    border-width: 1px;
-                    border-color: #e0e0e0;
-                    border-radius: 4px;
-
-                    VerticalBox {
-                        padding: 28px;
-                        spacing: 18px;
-
-                        Rectangle {
-                            width: 48px;
-                            height: 48px;
-                            border-radius: 24px;
-                            background: #107c10;
-
-                            Text {
-                                text: "\u{2713}";
-                                color: white;
-                                font-size: 22px;
-                                font-weight: 700;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                                width: parent.width;
-                                height: parent.height;
-                            }
-                        }
-
-                        Text {
-                            text: root.app_name + " has been installed successfully.";
-                            color: #1e1e1e;
-                            font-size: 20px;
-                            font-weight: 600;
-                        }
-
-                        Text {
-                            text: "You can close this window.";
-                            color: #616161;
-                            font-size: 14px;
-                        }
-
-                        Rectangle { vertical-stretch: 1; }
-                    }
-                }
-
-                if root.current_screen == 4 : Rectangle {
-                    vertical-stretch: 1;
-                    background: #fdf0f0;
-                    border-width: 1px;
-                    border-color: #d13438;
-                    border-radius: 4px;
-
-                    VerticalBox {
-                        padding: 28px;
-                        spacing: 18px;
-
-                        Rectangle {
-                            width: 48px;
-                            height: 48px;
-                            border-radius: 24px;
-                            background: #d13438;
-
-                            Text {
-                                text: "\u{2717}";
-                                color: white;
-                                font-size: 22px;
-                                font-weight: 700;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
-                                width: parent.width;
-                                height: parent.height;
-                            }
-                        }
-
-                        Text {
-                            text: "Installation failed";
-                            color: #1e1e1e;
-                            font-size: 20px;
-                            font-weight: 600;
-                        }
-
-                        Rectangle { height: 1px; background: #d13438; }
-
-                        TextEdit {
-                            text: root.error_text;
-                            read-only: true;
-                            wrap: word-wrap;
-                            vertical-stretch: 1;
-                        }
-                    }
-                }
-
-                Rectangle { height: 20px; }
-
-                // Bottom buttons
-                Rectangle {
-                    height: 44px;
-                    background: #f3f3f3;
-
-                    HorizontalBox {
-                        spacing: 10px;
-                        alignment: end;
-
-                        if !root.install_running && (root.current_screen == 0 || root.current_screen == 1) : Button {
-                            text: root.current_screen == 1 ? "Back" : "Cancel";
-                            clicked => {
-                                if root.current_screen == 1 {
-                                    root.back();
-                                } else {
-                                    root.cancel();
+                                Text {
+                                    text: root.status_text == "" ? "Working" : root.status_text;
+                                    color: Theme.text-body;
+                                    font-size: 12px;
+                                    font-weight: 500;
+                                    horizontal-alignment: center;
                                 }
                             }
                         }
+                    }
 
-                        if !root.install_running && (root.current_screen == 0 || root.current_screen == 1) : Button {
-                            text: root.current_screen == 0 && root.has_license ? "Next" : "Install";
-                            clicked => { root.next(); }
+                    Card {
+                        vertical-stretch: 1;
+
+                        VerticalBox {
+                            padding: Theme.s-7;
+                            spacing: Theme.s-5;
+
+                            VerticalBox {
+                                spacing: Theme.s-3;
+
+                                Rectangle {
+                                    height: 10px;
+                                    border-radius: 5px;
+                                    background: Theme.divider;
+
+                                    Rectangle {
+                                        width: parent.width * root.progress_value;
+                                        height: parent.height;
+                                        border-radius: 5px;
+                                        background: root.accent_color;
+                                    }
+                                }
+
+                                HorizontalBox {
+                                    alignment: start;
+                                    spacing: Theme.s-3;
+
+                                    Text {
+                                        text: root.detail_text;
+                                        color: Theme.text-body;
+                                        font-size: 13px;
+                                        font-weight: 500;
+                                    }
+
+                                    // Spring pushes the percentage to the right.
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 1px;
+                                    }
+
+                                    Text {
+                                        text: Math.round(root.progress_value * 100) + "%";
+                                        color: Theme.text-secondary;
+                                        font-size: 13px;
+                                        font-weight: 600;
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.divider;
+                            }
+
+                            FieldHint {
+                                text: "Files are being extracted directly from the installer. Closing the window will cancel the install.";
+                            }
+                        }
+                    }
+                }
+
+                // ─── Finish ───
+                if root.current_screen == 3 : VerticalBox {
+                    spacing: Theme.s-6;
+
+                    VerticalBox {
+                        spacing: Theme.s-4;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 72px;
+                            height: 72px;
+                            border-radius: 36px;
+                            background: Theme.success-bg;
+                            border-width: 2px;
+                            border-color: Theme.success;
+
+                            Text {
+                                text: "✓";
+                                color: Theme.success;
+                                font-size: 36px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                width: parent.width;
+                                height: parent.height;
+                            }
                         }
 
-                        if !root.install_running && (root.current_screen == 3 || root.current_screen == 4) : Button {
-                            text: "Close";
-                            clicked => { root.finish(); }
+                        ScreenTitle {
+                            text: "All set!";
+                            horizontal-alignment: center;
+                            font-size: 28px;
+                        }
+
+                        Text {
+                            text: root.app_name + " is now installed on your computer.";
+                            color: Theme.text-body;
+                            font-size: 15px;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    Card {
+                        width: 100%;
+
+                        VerticalBox {
+                            padding: Theme.s-6;
+                            spacing: Theme.s-3;
+
+                            ScreenTitle {
+                                text: "Installation summary";
+                                font-size: 14px;
+                            }
+
+                            HorizontalBox {
+                                spacing: Theme.s-7;
+                                alignment: start;
+
+                                VerticalBox {
+                                    spacing: 2px;
+                                    horizontal-stretch: 1;
+
+                                    FieldLabel {
+                                        text: "APP";
+                                    }
+
+                                    Text {
+                                        text: root.app_name;
+                                        color: Theme.text-body;
+                                        font-size: 14px;
+                                    }
+                                }
+
+                                VerticalBox {
+                                    spacing: 2px;
+                                    horizontal-stretch: 1;
+
+                                    FieldLabel {
+                                        text: "VERSION";
+                                    }
+
+                                    Text {
+                                        text: root.version_text;
+                                        color: Theme.text-body;
+                                        font-size: 14px;
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.divider;
+                            }
+
+                            VerticalBox {
+                                spacing: 2px;
+
+                                FieldLabel {
+                                    text: "INSTALL LOCATION";
+                                }
+
+                                Text {
+                                    text: root.install_dir;
+                                    color: Theme.text-body;
+                                    font-size: 14px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ─── Error ───
+                if root.current_screen == 4 : VerticalBox {
+                    spacing: Theme.s-6;
+
+                    VerticalBox {
+                        spacing: Theme.s-4;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 72px;
+                            height: 72px;
+                            border-radius: 36px;
+                            background: Theme.error-bg;
+                            border-width: 2px;
+                            border-color: Theme.error;
+
+                            Text {
+                                text: "!";
+                                color: Theme.error;
+                                font-size: 40px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                width: parent.width;
+                                height: parent.height;
+                            }
+                        }
+
+                        ScreenTitle {
+                            text: "Installation failed";
+                            horizontal-alignment: center;
+                            font-size: 24px;
+                        }
+
+                        Text {
+                            text: "Something went wrong during installation. The details below may help diagnose the problem.";
+                            color: Theme.text-body;
+                            font-size: 14px;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+
+                    Card {
+                        danger: true;
+                        vertical-stretch: 1;
+
+                        VerticalBox {
+                            spacing: 0px;
+
+                            Rectangle {
+                                height: 40px;
+                                background: Theme.error-bg;
+
+                                HorizontalBox {
+                                    padding-left: Theme.s-5;
+                                    padding-right: Theme.s-5;
+                                    spacing: Theme.s-3;
+                                    alignment: start;
+
+                                    Text {
+                                        text: "Error details";
+                                        color: Theme.error;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                        letter-spacing: 0.5px;
+                                        vertical-alignment: center;
+                                    }
+
+                                    // Spring pushes the Copy button right.
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        height: 1px;
+                                    }
+
+                                    Btn {
+                                        text: "Copy";
+                                        compact: true;
+                                        clicked => { root.copy_error(); }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                height: 1px;
+                                background: Theme.error-border;
+                            }
+
+                            TextEdit {
+                                text: root.error_text;
+                                read-only: true;
+                                wrap: word-wrap;
+                                font-family: "Consolas, Menlo, monospace";
+                                font-size: 12px;
+                            }
                         }
                     }
                 }
             }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Theme.divider;
+        }
+
+        ActionBar {
+            current_screen: root.current_screen;
+            install_running: root.install_running;
+            has_license: root.has_license;
+            license_accepted: root.license_accepted;
+            accent: root.accent_color;
+            back => { root.back(); }
+            next => { root.next(); }
+            cancel => { root.cancel(); }
+            finish => { root.finish(); }
         }
     }
 }
