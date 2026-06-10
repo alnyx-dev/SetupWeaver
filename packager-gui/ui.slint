@@ -46,6 +46,7 @@ global Theme {
     out property <color> divider: #eceef2;
     out property <color> entry-bg: #fafbfc;
     out property <color> entry-border: #e6e8ec;
+    out property <color> input-border: #c4c9d0;
     out property <color> text-primary: #1f2937;
     out property <color> text-body: #374151;
     out property <color> text-secondary: #6b7280;
@@ -156,6 +157,12 @@ component FieldHint inherits Text {
 // `required: true` makes the label red and appends a `*` so the user
 // immediately sees which fields can't be left blank. The contract
 // (FieldRow used by the App Info / Install / UI pages) stays the same.
+//
+// The `@children` slot is wrapped in a styled Rectangle so the input
+// widget (LineEdit / ComboBox / BrowseRow) is always clearly visible:
+// Slint 1.16.1's std-widgets LineEdit uses a 1px #e6e8ec border on a
+// near-white control-background, which visually disappears against a
+// white Card. The wrapper provides a visible frame.
 component FieldRow inherits VerticalBox {
     in property <string> label: "";
     in property <string> hint: "";
@@ -167,7 +174,15 @@ component FieldRow inherits VerticalBox {
         visible: root.label != "";
     }
 
-    @children
+    Rectangle {
+        min-height: 36px;
+        horizontal-stretch: 1;
+        background: Theme.card-bg;
+        border-width: 1px;
+        border-color: Theme.input-border;
+        border-radius: Theme.r-sm;
+        @children
+    }
 
     FieldHint {
         text: root.hint;
@@ -695,8 +710,8 @@ export component PackagerWindow inherits Window {
     title: "SetupWeaver Packager";
     preferred-width: 1080px;
     preferred-height: 720px;
-    min-width: 960px;
-    min-height: 620px;
+    min-width: 640px;
+    min-height: 480px;
     background: Theme.page-bg;
 
     // Helper: best-effort live swatch for the accent colour. The contract
@@ -781,7 +796,7 @@ export component PackagerWindow inherits Window {
 
             // ── NavRail ──
             Rectangle {
-                width: 224px;
+                width: 180px;
                 background: Theme.rail-bg;
 
                 Rectangle {
